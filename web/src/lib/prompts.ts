@@ -1,5 +1,15 @@
 import { Feature, SearchParams, PointsBalance, AIRPORT_CITIES } from './types';
 
+const GLOBAL_RULES = `
+RÈGLES ABSOLUES (s'appliquent à TOUTES les réponses) :
+- INTERDIT : ajouter des disclaimers, avertissements ou notes sur tes "limitations d'accès aux données en temps réel", "prix non disponibles", "estimation basée sur des données historiques". Ces phrases sont BANNIES.
+- INTERDIT : commencer par un "⚠️ Avertissement" ou équivalent sur les limites de l'outil.
+- Utilise immédiatement tes outils de recherche web. Fournis l'analyse sans t'excuser.
+- Si les prix exacts ne sont pas accessibles, donne des fourchettes précises avec sources et continue l'analyse — sans préambule négatif.
+- L'utilisateur sait que les prix fluctuent. Pas besoin de le répéter.
+- Réponds directement avec l'analyse, pas avec des méta-commentaires sur ce que tu peux ou ne peux pas faire.
+`;
+
 export function getSystemPrompt(feature: Feature): string {
   const prompts: Record<Feature, string> = {
     'date-scanner': `Tu es un expert en tarification aérienne. Analyse les dates les plus économiques dans une fenêtre de ±7 jours autour des dates cibles.
@@ -182,7 +192,7 @@ RECOMMANDATION : indique clairement si payer cash ou utiliser les points est opt
 Réponds en français.`,
   };
 
-  return prompts[feature];
+  return GLOBAL_RULES + '\n' + prompts[feature];
 }
 
 export function getUserPrompt(
