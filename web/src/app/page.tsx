@@ -6,143 +6,152 @@ import remarkGfm from 'remark-gfm';
 import {
   Feature,
   FlightAlert,
-  SearchParams,
   SearchMode,
   PointsBalance,
   FEATURES_BY_MODE,
   TripClass,
+  TripType,
+  AIRPORT_CITIES,
 } from '@/lib/types';
 
-const AIRPORTS = [
-  { code: 'AMS', label: 'Amsterdam (AMS)' },
-  { code: 'CDG', label: 'Paris CDG (CDG)' },
-  { code: 'LHR', label: 'Londres (LHR)' },
-  { code: 'BRU', label: 'Bruxelles (BRU)' },
-  { code: 'FRA', label: 'Francfort (FRA)' },
-  { code: 'ZRH', label: 'Zurich (ZRH)' },
-  { code: 'BCN', label: 'Barcelone (BCN)' },
-  { code: 'MAD', label: 'Madrid (MAD)' },
-  { code: 'FCO', label: 'Rome (FCO)' },
-  { code: 'VIE', label: 'Vienne (VIE)' },
-  { code: 'IST', label: 'Istanbul (IST)' },
-  { code: 'DXB', label: 'Dubaï (DXB)' },
-  { code: 'BKK', label: 'Bangkok (BKK)' },
-  { code: 'SIN', label: 'Singapour (SIN)' },
-  { code: 'NRT', label: 'Tokyo Narita (NRT)' },
-  { code: 'HND', label: 'Tokyo Haneda (HND)' },
-  { code: 'HKG', label: 'Hong Kong (HKG)' },
-  { code: 'ICN', label: 'Séoul (ICN)' },
-  { code: 'JFK', label: 'New York JFK (JFK)' },
-  { code: 'LAX', label: 'Los Angeles (LAX)' },
-  { code: 'MIA', label: 'Miami (MIA)' },
-  { code: 'GRU', label: 'São Paulo (GRU)' },
-  { code: 'SYD', label: 'Sydney (SYD)' },
-  { code: 'DPS', label: 'Bali (DPS)' },
-  { code: 'KUL', label: 'Kuala Lumpur (KUL)' },
-  { code: 'CMN', label: 'Casablanca (CMN)' },
-  { code: 'LIS', label: 'Lisbonne (LIS)' },
-];
+// ── Constants ─────────────────────────────────────────────────────────────
 
-const defaultParams: SearchParams = {
-  origin: 'AMS',
-  destination: 'BKK',
-  departDate: '',
-  returnDate: '',
-  tripType: 'round-trip',
-  class: 'economy',
-  adults: 1,
-  budget: undefined,
+const POINTS_LABELS: Record<keyof PointsBalance, string> = {
+  flyingBlue: 'Flying Blue (AF/KLM)',
+  krisflyer: 'KrisFlyer (Singapore)',
+  aeroplan: 'Aeroplan (Air Canada)',
+  avios: 'Avios (BA/IB)',
+  chaseUR: 'Chase Ultimate Rewards',
+  amexMR: 'Amex Membership Rewards',
+  lifeMiles: 'LifeMiles (Avianca)',
 };
 
-const defaultPoints: PointsBalance = {
-  flyingBlue: 0,
-  krisflyer: 0,
-  aeroplan: 0,
-  avios: 0,
-  chaseUR: 0,
-  amexMR: 0,
-  lifeMiles: 0,
+const EMPTY_POINTS: PointsBalance = {
+  flyingBlue: 0, krisflyer: 0, aeroplan: 0,
+  avios: 0, chaseUR: 0, amexMR: 0, lifeMiles: 0,
 };
 
-const MODES: { id: SearchMode; label: string; icon: string; subtitle: string }[] = [
-  { id: 'flights', label: 'Vols Cash', icon: '✈️', subtitle: '8 outils de recherche prix' },
-  { id: 'points', label: 'Points & Miles', icon: '🏆', subtitle: 'Award flights & optimisation' },
-  { id: 'hotel', label: 'Hôtels', icon: '🏨', subtitle: 'Cash & points fidélité' },
-];
+// ── Airport datalist (rendered once, shared) ──────────────────────────────
+
+function AirportDatalist() {
+  return (
+    <datalist id="airports">
+      {Object.entries(AIRPORT_CITIES).map(([code, city]) => (
+        <option key={code} value={code}>{code} — {city}</option>
+      ))}
+    </datalist>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────
 
 export default function Home() {
+  // Search state
   const [mode, setMode] = useState<SearchMode>('flights');
-  const [params, setParams] = useState<SearchParams>(defaultParams);
-  const [points, setPoints] = useState<PointsBalance>(defaultPoints);
-  const [showPoints, setShowPoints] = useState(false);
+  const [origin, setOrigin] = useState('AMS');
+  const [destination, setDestination] = useState('BKK');
+  const [departDate, setDepartDate] = useState('');
+  const [returnDate, setReturnDate] = useState('');
+  const [tripType, setTripType] = useState<TripType>('round-trip');
+  const [seatClass, setSeatClass] = useState<TripClass>('economy');
+  const [adults, setAdults] = useState(1);
+  const [budget, setBudget] = useState('');
+
+  // Feature state
   const [selectedFeature, setSelectedFeature] = useState<Feature>('date-scanner');
+
+  // Result state
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Alerts state
   const [alerts, setAlerts] = useState<FlightAlert[]>([]);
+  const [showAlerts, setShowAlerts] = useState(false);
   const [alertForm, setAlertForm] = useState({
-    origin: 'AMS',
-    destination: 'BKK',
-    class: 'business' as TripClass,
-    maxPrice: 1500,
-    email: '',
+    origin: 'AMS', destination: 'BKK',
+    class: 'business', maxPrice: '', email: '',
   });
   const [alertLoading, setAlertLoading] = useState<string | null>(null);
   const [alertResults, setAlertResults] = useState<Record<string, string>>({});
-  const [showAlerts, setShowAlerts] = useState(false);
+
+  // Points state
+  const [points, setPoints] = useState<PointsBalance>(EMPTY_POINTS);
+  const [showPoints, setShowPoints] = useState(false);
+
   const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem('flight-alerts');
-    if (stored) setAlerts(JSON.parse(stored));
-    const storedPoints = localStorage.getItem('points-balance');
-    if (storedPoints) setPoints(JSON.parse(storedPoints));
+    try {
+      const a = localStorage.getItem('flysearch-alerts');
+      if (a) setAlerts(JSON.parse(a));
+      const p = localStorage.getItem('flysearch-points');
+      if (p) setPoints(JSON.parse(p));
+    } catch { /* ignore */ }
   }, []);
-
-  useEffect(() => {
-    // Set default feature when mode changes
-    const features = FEATURES_BY_MODE(mode);
-    if (features.length > 0) setSelectedFeature(features[0].id);
-    setResult('');
-  }, [mode]);
 
   const saveAlerts = (updated: FlightAlert[]) => {
     setAlerts(updated);
-    localStorage.setItem('flight-alerts', JSON.stringify(updated));
+    localStorage.setItem('flysearch-alerts', JSON.stringify(updated));
   };
 
   const savePoints = (updated: PointsBalance) => {
     setPoints(updated);
-    localStorage.setItem('points-balance', JSON.stringify(updated));
+    localStorage.setItem('flysearch-points', JSON.stringify(updated));
   };
 
-  const hasPoints = Object.values(points).some((v) => v > 0);
+  const handleModeChange = (m: SearchMode) => {
+    setMode(m);
+    const feats = FEATURES_BY_MODE(m);
+    if (feats.length > 0) setSelectedFeature(feats[0].id);
+    setResult('');
+  };
+
+  // ── Streaming fetch helper ───────────────────────────────────────────────
+
+  const streamFetch = async (
+    body: Record<string, unknown>,
+    onChunk: (text: string) => void,
+  ) => {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.body) throw new Error('Pas de réponse du serveur');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      onChunk(text);
+    }
+  };
+
+  // ── Analyze ──────────────────────────────────────────────────────────────
 
   const handleAnalyze = async () => {
-    if (!params.origin || !params.destination || !params.departDate) return;
+    if (!origin || !destination || !departDate) return;
     setLoading(true);
     setResult('');
-    setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-
+    setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
     try {
-      const body: Record<string, unknown> = {
-        feature: selectedFeature,
-        ...params,
-      };
-      if (mode === 'points' && hasPoints) body.points = points;
-
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.body) throw new Error('Pas de réponse');
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        setResult((p) => p + decoder.decode(value, { stream: true }));
-      }
+      await streamFetch(
+        {
+          feature: selectedFeature,
+          origin,
+          destination,
+          departDate,
+          returnDate: tripType === 'round-trip' ? returnDate : undefined,
+          tripType,
+          class: seatClass,
+          adults,
+          budget: budget ? Number(budget) : undefined,
+          ...(mode === 'points' ? { points } : {}),
+        },
+        setResult,
+      );
     } catch (e) {
       setResult(`**Erreur :** ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -150,42 +159,22 @@ export default function Home() {
     }
   };
 
-  const handleAddAlert = () => {
-    if (!alertForm.email) return;
-    const alert: FlightAlert = {
-      id: Date.now().toString(),
-      ...alertForm,
-      createdAt: new Date().toISOString(),
-    };
-    saveAlerts([...alerts, alert]);
-    setAlertForm({ ...alertForm, email: '' });
-  };
+  // ── Alert check ──────────────────────────────────────────────────────────
 
   const handleCheckAlert = async (alert: FlightAlert) => {
     setAlertLoading(alert.id);
     try {
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await streamFetch(
+        {
           feature: 'deals-detector',
           isAlert: true,
           alertOrigin: alert.origin,
           alertDest: alert.destination,
           alertClass: alert.class === 'business' ? 'Affaires (Business)' : 'Première classe',
           alertMaxPrice: alert.maxPrice,
-        }),
-      });
-      if (!res.body) throw new Error('No body');
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let text = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-        setAlertResults((p) => ({ ...p, [alert.id]: text }));
-      }
+        },
+        (text) => setAlertResults((p) => ({ ...p, [alert.id]: text })),
+      );
     } catch (e) {
       setAlertResults((p) => ({ ...p, [alert.id]: `Erreur : ${e}` }));
     } finally {
@@ -193,426 +182,516 @@ export default function Home() {
     }
   };
 
-  const handleCheckAllAlerts = () => alerts.forEach(handleCheckAlert);
-  const isAlertTriggered = (id: string) => alertResults[id]?.includes('🚨');
+  const addAlert = () => {
+    if (!alertForm.destination || !alertForm.maxPrice || !alertForm.email) return;
+    const newAlert: FlightAlert = {
+      id: Date.now().toString(),
+      origin: alertForm.origin,
+      destination: alertForm.destination,
+      class: alertForm.class as TripClass,
+      maxPrice: Number(alertForm.maxPrice),
+      email: alertForm.email,
+      createdAt: new Date().toISOString(),
+    };
+    saveAlerts([...alerts, newAlert]);
+    setAlertForm({ ...alertForm, destination: 'BKK', maxPrice: '', email: '' });
+  };
+
+  const isTriggered = (id: string) => alertResults[id]?.includes('🚨');
 
   const features = FEATURES_BY_MODE(mode);
   const currentFeature = features.find((f) => f.id === selectedFeature);
+  const canAnalyze = !!origin && !!destination && !!departDate && !loading;
 
-  const dateLabel1 = mode === 'hotel' ? 'Check-in' : 'Date départ';
-  const dateLabel2 = mode === 'hotel' ? 'Check-out' : 'Date retour';
+  const dateLabel1 = mode === 'hotel' ? 'Check-in' : 'Départ';
+  const dateLabel2 = mode === 'hotel' ? 'Check-out' : 'Retour';
 
   return (
-    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #0a0d1a 0%, #0f1629 50%, #0a0d1a 100%)' }}>
-      {/* Header */}
-      <header className="border-b border-white/10 px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">✈️</span>
-            <div>
-              <h1 className="text-xl font-bold text-white">FlightScanner <span className="text-yellow-400">AI</span></h1>
-              <p className="text-xs text-slate-400">Vols · Points & Miles · Hôtels — tout en un</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAlerts((v) => !v)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
-              style={{ background: showAlerts ? 'rgba(251,191,36,0.2)' : 'rgba(255,255,255,0.07)', color: showAlerts ? '#fbbf24' : '#94a3b8', border: '1px solid', borderColor: showAlerts ? 'rgba(251,191,36,0.4)' : 'rgba(255,255,255,0.1)' }}
-            >
-              🔔 Alertes {alerts.length > 0 && <span className="bg-yellow-400 text-black text-xs rounded-full px-1.5">{alerts.length}</span>}
-            </button>
-          </div>
+    <>
+      <AirportDatalist />
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <header className="app-header">
+        <div className="container">
+          <span className="wordmark">FlySearch</span>
+          <nav className="mode-tabs">
+            {([
+              { id: 'flights' as SearchMode, label: 'Vols' },
+              { id: 'points' as SearchMode, label: 'Miles & Points' },
+              { id: 'hotel' as SearchMode, label: 'Hôtels' },
+            ] as const).map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => handleModeChange(id)}
+                className={`mode-tab${mode === id ? ' active' : ''}`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
+      {/* ── Search strip ───────────────────────────────────────────────── */}
+      <div className="search-strip">
+        <div className="container">
+          <div className="search-row">
 
-        {/* Mode Switcher */}
-        <div className="flex gap-2">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => setMode(m.id)}
-              className="flex-1 rounded-xl p-4 text-left transition-all"
-              style={{
-                background: mode === m.id ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${mode === m.id ? 'rgba(251,191,36,0.4)' : 'rgba(255,255,255,0.08)'}`,
-              }}
-            >
-              <div className="text-xl mb-1">{m.icon}</div>
-              <div className={`text-sm font-semibold ${mode === m.id ? 'text-yellow-400' : 'text-white'}`}>{m.label}</div>
-              <div className="text-xs text-slate-500 mt-0.5">{m.subtitle}</div>
-            </button>
-          ))}
-        </div>
-
-        {/* Points Balance Panel (Points mode) */}
-        {mode === 'points' && (
-          <div className="rounded-2xl p-5" style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.2)' }}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-yellow-400">🏆 Mes balances de points</h2>
-              <button
-                onClick={() => setShowPoints((v) => !v)}
-                className="text-xs px-3 py-1 rounded-lg"
-                style={{ background: 'rgba(255,255,255,0.07)', color: '#94a3b8' }}
-              >
-                {showPoints ? 'Masquer' : 'Modifier'}
-              </button>
-            </div>
-
-            {!showPoints ? (
-              <div className="flex flex-wrap gap-3">
-                {[
-                  { key: 'flyingBlue', label: 'Flying Blue', icon: '🔵' },
-                  { key: 'krisflyer', label: 'KrisFlyer', icon: '🟡' },
-                  { key: 'aeroplan', label: 'Aeroplan', icon: '🍁' },
-                  { key: 'avios', label: 'Avios', icon: '🇬🇧' },
-                  { key: 'lifeMiles', label: 'LifeMiles', icon: '🟠' },
-                  { key: 'chaseUR', label: 'Chase UR', icon: '💳' },
-                  { key: 'amexMR', label: 'Amex MR', icon: '💎' },
-                ].map(({ key, label, icon }) => {
-                  const val = points[key as keyof PointsBalance];
-                  return (
-                    <div
-                      key={key}
-                      className="rounded-lg px-3 py-2 text-xs"
-                      style={{ background: val > 0 ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${val > 0 ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.08)'}` }}
-                    >
-                      <span className="mr-1">{icon}</span>
-                      <span className={val > 0 ? 'text-yellow-300' : 'text-slate-500'}>{label}: {val > 0 ? val.toLocaleString() : '0'}</span>
-                    </div>
-                  );
-                })}
-                {!hasPoints && <p className="text-xs text-slate-500 self-center">Cliquez Modifier pour saisir vos balances</p>}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {[
-                  { key: 'flyingBlue', label: 'Flying Blue (AF/KLM)', placeholder: '50000' },
-                  { key: 'krisflyer', label: 'KrisFlyer (SQ)', placeholder: '30000' },
-                  { key: 'aeroplan', label: 'Aeroplan (AC)', placeholder: '25000' },
-                  { key: 'avios', label: 'Avios (BA/IB)', placeholder: '20000' },
-                  { key: 'lifeMiles', label: 'LifeMiles (AV)', placeholder: '15000' },
-                  { key: 'chaseUR', label: 'Chase Ultimate Rewards', placeholder: '100000' },
-                  { key: 'amexMR', label: 'Amex Membership Rewards', placeholder: '80000' },
-                ].map(({ key, label, placeholder }) => (
-                  <div key={key}>
-                    <label className="block text-xs text-slate-400 mb-1">{label}</label>
-                    <input
-                      type="number"
-                      placeholder={placeholder}
-                      value={points[key as keyof PointsBalance] || ''}
-                      onChange={(e) => {
-                        const updated = { ...points, [key]: +e.target.value || 0 };
-                        savePoints(updated);
-                      }}
-                      className="w-full rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600"
-                      style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
-                    />
-                  </div>
-                ))}
-                <div className="flex items-end">
-                  <button
-                    onClick={() => setShowPoints(false)}
-                    className="w-full rounded-lg px-3 py-2 text-sm font-semibold"
-                    style={{ background: 'rgba(251,191,36,0.2)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}
-                  >
-                    ✓ Sauvegarder
-                  </button>
+            {mode !== 'hotel' && (
+              <>
+                <div className="field">
+                  <span className="field-label">Départ</span>
+                  <input
+                    list="airports"
+                    className="field-input"
+                    style={{ width: '80px', textTransform: 'uppercase' }}
+                    value={origin}
+                    onChange={(e) => setOrigin(e.target.value.toUpperCase().slice(0, 3))}
+                    placeholder="AMS"
+                  />
                 </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Search Form */}
-        <div className="rounded-2xl p-6 space-y-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">
-            {mode === 'hotel' ? 'Paramètres de séjour' : 'Paramètres de recherche'}
-          </h2>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">{mode === 'hotel' ? 'Destination (aéroport)' : 'Départ'}</label>
-              {mode === 'hotel' ? (
-                <select
-                  value={params.destination}
-                  onChange={(e) => setParams({ ...params, destination: e.target.value })}
-                  className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                  style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
-                >
-                  {AIRPORTS.map((a) => <option key={a.code} value={a.code} style={{ background: '#1a1f35' }}>{a.label}</option>)}
-                </select>
-              ) : (
-                <select
-                  value={params.origin}
-                  onChange={(e) => setParams({ ...params, origin: e.target.value })}
-                  className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                  style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
-                >
-                  {AIRPORTS.map((a) => <option key={a.code} value={a.code} style={{ background: '#1a1f35' }}>{a.label}</option>)}
-                </select>
-              )}
-            </div>
-
-            {mode !== 'hotel' && (
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Arrivée</label>
-                <select
-                  value={params.destination}
-                  onChange={(e) => setParams({ ...params, destination: e.target.value })}
-                  className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                  style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
-                >
-                  {AIRPORTS.map((a) => <option key={a.code} value={a.code} style={{ background: '#1a1f35' }}>{a.label}</option>)}
-                </select>
-              </div>
+                <span className="arrow">→</span>
+              </>
             )}
 
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">{dateLabel1}</label>
+            <div className="field">
+              <span className="field-label">{mode === 'hotel' ? 'Destination' : 'Arrivée'}</span>
               <input
-                type="date"
-                value={params.departDate}
-                onChange={(e) => setParams({ ...params, departDate: e.target.value })}
-                className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', colorScheme: 'dark' }}
+                list="airports"
+                className="field-input"
+                style={{ width: '80px', textTransform: 'uppercase' }}
+                value={destination}
+                onChange={(e) => setDestination(e.target.value.toUpperCase().slice(0, 3))}
+                placeholder="BKK"
               />
             </div>
 
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">{dateLabel2}</label>
-              <input
-                type="date"
-                value={params.returnDate || ''}
-                onChange={(e) => setParams({ ...params, returnDate: e.target.value })}
-                className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', colorScheme: 'dark' }}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
             {mode !== 'hotel' && (
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Classe</label>
+              <div className="field">
+                <span className="field-label">Type</span>
                 <select
-                  value={params.class}
-                  onChange={(e) => setParams({ ...params, class: e.target.value as TripClass })}
-                  className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                  style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
+                  className="field-input"
+                  style={{ width: '140px' }}
+                  value={tripType}
+                  onChange={(e) => setTripType(e.target.value as TripType)}
                 >
-                  <option value="economy" style={{ background: '#1a1f35' }}>Économique</option>
-                  <option value="business" style={{ background: '#1a1f35' }}>Business</option>
-                  <option value="first" style={{ background: '#1a1f35' }}>Première</option>
+                  <option value="one-way">Aller simple</option>
+                  <option value="round-trip">Aller-retour</option>
                 </select>
               </div>
             )}
 
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Personnes</label>
+            <div className="field">
+              <span className="field-label">{dateLabel1}</span>
+              <input
+                type="date"
+                className="field-input"
+                style={{ width: '148px' }}
+                value={departDate}
+                onChange={(e) => setDepartDate(e.target.value)}
+              />
+            </div>
+
+            {(mode === 'hotel' || tripType === 'round-trip') && (
+              <div className="field">
+                <span className="field-label">{dateLabel2}</span>
+                <input
+                  type="date"
+                  className="field-input"
+                  style={{ width: '148px' }}
+                  value={returnDate}
+                  onChange={(e) => setReturnDate(e.target.value)}
+                />
+              </div>
+            )}
+
+            {mode !== 'hotel' && (
+              <div className="field">
+                <span className="field-label">Classe</span>
+                <select
+                  className="field-input"
+                  style={{ width: '130px' }}
+                  value={seatClass}
+                  onChange={(e) => setSeatClass(e.target.value as TripClass)}
+                >
+                  <option value="economy">Économique</option>
+                  <option value="business">Affaires</option>
+                  <option value="first">Première</option>
+                </select>
+              </div>
+            )}
+
+            <div className="field">
+              <span className="field-label">Passagers</span>
               <select
-                value={params.adults}
-                onChange={(e) => setParams({ ...params, adults: +e.target.value })}
-                className="w-full rounded-lg px-3 py-2 text-sm text-white"
-                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
+                className="field-input"
+                style={{ width: '72px' }}
+                value={adults}
+                onChange={(e) => setAdults(Number(e.target.value))}
               >
-                {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n} style={{ background: '#1a1f35' }}>{n} adulte{n > 1 ? 's' : ''}</option>)}
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
               </select>
             </div>
 
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Budget max (EUR)</label>
+            <div className="field">
+              <span className="field-label">Budget max €</span>
               <input
                 type="number"
-                placeholder="Ex: 800"
-                value={params.budget || ''}
-                onChange={(e) => setParams({ ...params, budget: e.target.value ? +e.target.value : undefined })}
-                className="w-full rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500"
-                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
+                className="field-input"
+                style={{ width: '90px' }}
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                placeholder="900"
+                min="0"
               />
             </div>
 
-            {mode !== 'hotel' && (
-              <div className="flex items-end">
+            <button
+              className={`analyze-btn${canAnalyze ? ' active' : ''}`}
+              onClick={handleAnalyze}
+              disabled={!canAnalyze}
+            >
+              {loading ? 'Analyse...' : 'Analyser →'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Main content ───────────────────────────────────────────────── */}
+      <main className="main">
+        <div className="container">
+
+          {/* Feature pills */}
+          <div className="feature-row-wrap">
+            <div className="feature-row">
+              {features.map((f) => (
                 <button
-                  onClick={() => setParams({ ...params, origin: params.destination, destination: params.origin })}
-                  className="w-full rounded-lg px-3 py-2 text-sm font-medium transition-all text-slate-300 hover:text-white"
-                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                  key={f.id}
+                  className={`feature-pill${selectedFeature === f.id ? ' active' : ''}`}
+                  onClick={() => setSelectedFeature(f.id)}
                 >
-                  ⇄ Inverser
+                  {f.label}
                 </button>
-              </div>
+              ))}
+            </div>
+            {currentFeature && (
+              <p className="feature-desc">{currentFeature.description}</p>
             )}
+          </div>
 
-            <div className="flex items-end">
+          {/* Points panel (Points & Miles mode only) */}
+          {mode === 'points' && (
+            <div className="panel">
               <button
-                onClick={handleAnalyze}
-                disabled={loading || !params.departDate}
-                className="w-full rounded-lg px-4 py-2 text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ background: loading ? 'rgba(251,191,36,0.3)' : 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000' }}
+                className="panel-header"
+                onClick={() => setShowPoints((v) => !v)}
               >
-                {loading ? '⏳ Recherche...' : '🔍 Analyser'}
+                <span>Soldes de points</span>
+                <span className="chevron">{showPoints ? '▲' : '▼'}</span>
               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Feature Grid */}
-        <div>
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            {mode === 'flights' && "Choisir un outil d'analyse vol"}
-            {mode === 'points' && 'Choisir un outil points & miles'}
-            {mode === 'hotel' && "Choisir un outil hôtel"}
-          </h2>
-          <div className={`grid gap-3 ${features.length <= 3 ? 'grid-cols-3' : 'grid-cols-2 md:grid-cols-4'}`}>
-            {features.map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setSelectedFeature(f.id)}
-                className={`rounded-xl p-4 text-left transition-all bg-gradient-to-br border ${f.color} ${selectedFeature === f.id ? 'ring-2 ring-yellow-400/60 scale-[1.02]' : 'opacity-70 hover:opacity-100'}`}
-              >
-                <div className="text-2xl mb-1">{f.icon}</div>
-                <div className="text-sm font-semibold text-white">{f.label}</div>
-                <div className="text-xs text-slate-400 mt-1">{f.description}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Results */}
-        {(result || loading) && (
-          <div ref={resultRef} className="rounded-2xl p-6" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-xl">{currentFeature?.icon}</span>
-              <h2 className="text-lg font-semibold text-white">{currentFeature?.label}</h2>
-              {loading && (
-                <span className="ml-auto text-xs text-yellow-400 animate-pulse">
-                  🔄 Recherche web en cours...
-                </span>
-              )}
-            </div>
-            <div className="prose prose-invert max-w-none text-sm leading-relaxed text-slate-200">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
-              {loading && <span className="inline-block w-2 h-4 bg-yellow-400 animate-pulse ml-1" />}
-            </div>
-          </div>
-        )}
-
-        {/* Business Class Alerts */}
-        {showAlerts && (
-          <div className="rounded-2xl p-6 space-y-5" style={{ background: 'rgba(251,191,36,0.04)', border: '1px solid rgba(251,191,36,0.2)' }}>
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-yellow-400">🔔 Alertes — Business &amp; Première Classe</h2>
-              {alerts.length > 0 && (
-                <button
-                  onClick={handleCheckAllAlerts}
-                  disabled={alertLoading !== null}
-                  className="text-xs px-3 py-1.5 rounded-lg font-medium"
-                  style={{ background: 'rgba(251,191,36,0.2)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}
-                >
-                  {alertLoading ? '⏳ Vérification...' : '🔄 Vérifier toutes'}
-                </button>
-              )}
-            </div>
-
-            <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <h3 className="text-sm font-semibold text-white">Nouvelle alerte</h3>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <select value={alertForm.origin} onChange={(e) => setAlertForm({ ...alertForm, origin: e.target.value })} className="rounded-lg px-3 py-2 text-sm text-white" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}>
-                  {AIRPORTS.map((a) => <option key={a.code} value={a.code} style={{ background: '#1a1f35' }}>{a.code}</option>)}
-                </select>
-                <select value={alertForm.destination} onChange={(e) => setAlertForm({ ...alertForm, destination: e.target.value })} className="rounded-lg px-3 py-2 text-sm text-white" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}>
-                  {AIRPORTS.map((a) => <option key={a.code} value={a.code} style={{ background: '#1a1f35' }}>{a.code}</option>)}
-                </select>
-                <select value={alertForm.class} onChange={(e) => setAlertForm({ ...alertForm, class: e.target.value as TripClass })} className="rounded-lg px-3 py-2 text-sm text-white" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}>
-                  <option value="business" style={{ background: '#1a1f35' }}>Business</option>
-                  <option value="first" style={{ background: '#1a1f35' }}>Première</option>
-                </select>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span>
-                  <input type="number" placeholder="Prix max" value={alertForm.maxPrice} onChange={(e) => setAlertForm({ ...alertForm, maxPrice: +e.target.value })} className="w-full rounded-lg pl-7 pr-3 py-2 text-sm text-white" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }} />
+              {showPoints && (
+                <div className="points-grid">
+                  {(Object.keys(EMPTY_POINTS) as (keyof PointsBalance)[]).map((key) => (
+                    <label key={key} className="points-field">
+                      <span className="points-label">{POINTS_LABELS[key]}</span>
+                      <input
+                        type="number"
+                        className="field-input"
+                        value={points[key] || ''}
+                        onChange={(e) =>
+                          savePoints({ ...points, [key]: Number(e.target.value) || 0 })
+                        }
+                        placeholder="0"
+                        min="0"
+                      />
+                    </label>
+                  ))}
                 </div>
-                <input type="email" placeholder="Email notification" value={alertForm.email} onChange={(e) => setAlertForm({ ...alertForm, email: e.target.value })} className="rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }} />
-              </div>
-              <button onClick={handleAddAlert} disabled={!alertForm.email} className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40" style={{ background: 'rgba(251,191,36,0.2)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}>
-                + Ajouter l&apos;alerte
-              </button>
+              )}
             </div>
+          )}
 
-            {alerts.length === 0 ? (
-              <p className="text-sm text-slate-500 text-center py-4">Aucune alerte configurée.</p>
-            ) : (
-              <div className="space-y-3">
-                {alerts.map((alert) => (
-                  <div key={alert.id} className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${isAlertTriggered(alert.id) ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.08)'}` }}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <span className={`text-lg font-bold ${isAlertTriggered(alert.id) ? 'text-red-400' : 'text-white'}`}>{alert.origin} → {alert.destination}</span>
-                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24' }}>{alert.class === 'business' ? 'Business' : 'Première'}</span>
-                        <span className="text-xs text-slate-400">max {alert.maxPrice} €</span>
-                        <span className="text-xs text-slate-500">{alert.email}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => handleCheckAlert(alert)} disabled={alertLoading === alert.id} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.08)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.12)' }}>
-                          {alertLoading === alert.id ? '⏳' : '🔄 Vérifier'}
-                        </button>
-                        <button onClick={() => saveAlerts(alerts.filter((a) => a.id !== alert.id))} className="text-xs px-2 py-1.5 rounded-lg text-slate-500 hover:text-red-400" style={{ background: 'rgba(255,255,255,0.05)' }}>✕</button>
-                      </div>
-                    </div>
-                    {alertResults[alert.id] && (
-                      <div className={`mt-2 rounded-lg p-3 text-xs ${isAlertTriggered(alert.id) ? 'border border-red-500/30' : ''}`} style={{ background: isAlertTriggered(alert.id) ? 'rgba(239,68,68,0.08)' : 'rgba(255,255,255,0.03)' }}>
-                        <div className="prose prose-invert max-w-none text-xs leading-relaxed">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{alertResults[alert.id]}</ReactMarkdown>
-                        </div>
-                        {isAlertTriggered(alert.id) && alert.email && (
-                          <a href={`mailto:${alert.email}?subject=🚨 Alerte vol ${alert.origin}→${alert.destination} ${alert.class}&body=${encodeURIComponent(alertResults[alert.id])}`} className="inline-block mt-2 px-3 py-1 rounded text-xs font-semibold" style={{ background: 'rgba(239,68,68,0.2)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
-                            📧 Envoyer l&apos;alerte par email
-                          </a>
-                        )}
-                      </div>
-                    )}
+          {/* Alerts panel */}
+          <div className="panel">
+            <button
+              className="panel-header"
+              onClick={() => setShowAlerts((v) => !v)}
+            >
+              <span>
+                Alertes prix
+                {alerts.length > 0 && (
+                  <span className="alert-badge">{alerts.length}</span>
+                )}
+              </span>
+              <span className="chevron">{showAlerts ? '▲' : '▼'}</span>
+            </button>
+
+            {showAlerts && (
+              <div className="panel-body">
+                {/* Alert creation form */}
+                <div className="alert-form">
+                  <div className="field">
+                    <span className="field-label">De</span>
+                    <input
+                      list="airports"
+                      className="field-input"
+                      style={{ width: '80px', textTransform: 'uppercase' }}
+                      value={alertForm.origin}
+                      onChange={(e) =>
+                        setAlertForm({ ...alertForm, origin: e.target.value.toUpperCase().slice(0, 3) })
+                      }
+                      placeholder="AMS"
+                    />
                   </div>
-                ))}
+                  <div className="field">
+                    <span className="field-label">Vers</span>
+                    <input
+                      list="airports"
+                      className="field-input"
+                      style={{ width: '80px', textTransform: 'uppercase' }}
+                      value={alertForm.destination}
+                      onChange={(e) =>
+                        setAlertForm({ ...alertForm, destination: e.target.value.toUpperCase().slice(0, 3) })
+                      }
+                      placeholder="BKK"
+                    />
+                  </div>
+                  <div className="field">
+                    <span className="field-label">Classe</span>
+                    <select
+                      className="field-input"
+                      style={{ width: '130px' }}
+                      value={alertForm.class}
+                      onChange={(e) => setAlertForm({ ...alertForm, class: e.target.value })}
+                    >
+                      <option value="economy">Économique</option>
+                      <option value="business">Affaires</option>
+                      <option value="first">Première</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <span className="field-label">Prix max €</span>
+                    <input
+                      type="number"
+                      className="field-input"
+                      style={{ width: '90px' }}
+                      value={alertForm.maxPrice}
+                      onChange={(e) => setAlertForm({ ...alertForm, maxPrice: e.target.value })}
+                      placeholder="500"
+                      min="0"
+                    />
+                  </div>
+                  <div className="field">
+                    <span className="field-label">Email</span>
+                    <input
+                      type="email"
+                      className="field-input"
+                      style={{ width: '200px' }}
+                      value={alertForm.email}
+                      onChange={(e) => setAlertForm({ ...alertForm, email: e.target.value })}
+                      placeholder="vous@email.com"
+                    />
+                  </div>
+                  <button
+                    className="add-alert-btn"
+                    onClick={addAlert}
+                    disabled={!alertForm.destination || !alertForm.maxPrice || !alertForm.email}
+                  >
+                    + Ajouter
+                  </button>
+                  {alerts.length > 0 && (
+                    <button
+                      className="add-alert-btn"
+                      onClick={() => alerts.forEach(handleCheckAlert)}
+                      disabled={alertLoading !== null}
+                      style={{ marginLeft: 'auto' }}
+                    >
+                      {alertLoading ? 'Vérification...' : 'Vérifier toutes'}
+                    </button>
+                  )}
+                </div>
+
+                {alerts.length === 0 ? (
+                  <p className="empty-state">Aucune alerte configurée.</p>
+                ) : (
+                  <ul className="alert-list">
+                    {alerts.map((alert) => (
+                      <li key={alert.id} className="alert-item" style={{
+                        flexDirection: 'column',
+                        alignItems: 'stretch',
+                        gap: '8px',
+                        borderColor: isTriggered(alert.id) ? 'oklch(52% 0.18 22 / 0.5)' : undefined,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div className="alert-info">
+                            <span className="alert-route">{alert.origin} → {alert.destination}</span>
+                            <span className="alert-meta">
+                              {alert.class} · max {alert.maxPrice} € · {alert.email}
+                            </span>
+                          </div>
+                          <div className="alert-actions">
+                            <button
+                              className="check-btn"
+                              onClick={() => handleCheckAlert(alert)}
+                              disabled={alertLoading === alert.id}
+                            >
+                              {alertLoading === alert.id ? 'Vérification...' : 'Vérifier'}
+                            </button>
+                            <button
+                              className="remove-btn"
+                              onClick={() => saveAlerts(alerts.filter((a) => a.id !== alert.id))}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                        {alertResults[alert.id] && (
+                          <div style={{
+                            borderRadius: '8px',
+                            padding: '12px 14px',
+                            backgroundColor: isTriggered(alert.id)
+                              ? 'oklch(97% 0.02 22)'
+                              : 'var(--bg-elevated)',
+                            fontSize: '13px',
+                          }}>
+                            <div className="prose">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {alertResults[alert.id]}
+                              </ReactMarkdown>
+                            </div>
+                            {isTriggered(alert.id) && alert.email && (
+                              <a
+                                href={`mailto:${alert.email}?subject=Alerte vol ${alert.origin}→${alert.destination}&body=${encodeURIComponent(alertResults[alert.id])}`}
+                                style={{
+                                  display: 'inline-block',
+                                  marginTop: '8px',
+                                  padding: '5px 12px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: 500,
+                                  backgroundColor: 'oklch(52% 0.18 22 / 0.1)',
+                                  color: 'oklch(52% 0.18 22)',
+                                  border: '1px solid oklch(52% 0.18 22 / 0.3)',
+                                  textDecoration: 'none',
+                                }}
+                              >
+                                Envoyer par email
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
           </div>
-        )}
 
-        {/* Quick Links */}
-        <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <p className="text-xs text-slate-500 mb-2">Liens rapides :</p>
-          <div className="flex flex-wrap gap-2">
+          {/* Results */}
+          {(result || loading) && (
+            <div ref={resultRef} className="result-card">
+              {loading && !result && (
+                <div className="loading-state">
+                  <span className="spinner" />
+                  <span>Analyse en cours — recherche web en temps réel...</span>
+                </div>
+              )}
+              {result && (
+                <div className="prose">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
+                  {loading && (
+                    <span style={{
+                      display: 'inline-block',
+                      width: '2px',
+                      height: '16px',
+                      backgroundColor: 'var(--accent)',
+                      animation: 'spin 1s step-end infinite',
+                      verticalAlign: 'middle',
+                      marginLeft: '2px',
+                    }} />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!result && !loading && (
+            <div className="empty-results">
+              <p>
+                Sélectionnez une destination, choisissez une date de départ et un module
+                d&apos;analyse, puis cliquez sur Analyser.
+              </p>
+            </div>
+          )}
+
+          {/* Quick links */}
+          <div style={{
+            marginTop: '40px',
+            paddingTop: '20px',
+            borderTop: '1px solid var(--border-subtle)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '8px',
+            alignItems: 'center',
+          }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginRight: '4px' }}>
+              Rechercher aussi sur :
+            </span>
             {[
-              { label: 'Google Flights', url: `https://www.google.com/travel/flights?q=flights+from+${params.origin}+to+${params.destination}&curr=EUR` },
-              { label: 'Kayak', url: `https://www.kayak.fr/flights/${params.origin}-${params.destination}` },
-              { label: 'Skyscanner', url: `https://www.skyscanner.fr/transport/vols/${params.origin.toLowerCase()}/${params.destination.toLowerCase()}/` },
-              { label: 'Skiplagged', url: `https://skiplagged.com/flights/${params.origin}/${params.destination}` },
+              { label: 'Google Flights', url: `https://www.google.com/travel/flights?q=flights+from+${origin}+to+${destination}&curr=EUR` },
+              { label: 'Skyscanner', url: `https://www.skyscanner.fr/transport/vols/${origin.toLowerCase()}/${destination.toLowerCase()}/` },
+              { label: 'Kayak', url: `https://www.kayak.fr/flights/${origin}-${destination}` },
+              { label: 'Skiplagged', url: `https://skiplagged.com/flights/${origin}/${destination}` },
               { label: 'Seats.aero', url: 'https://seats.aero' },
               { label: 'Point.me', url: 'https://app.point.me' },
-              { label: 'Booking', url: `https://www.booking.com/searchresults.fr.html?dest_type=city&checkin=${params.departDate}&checkout=${params.returnDate || ''}` },
-              { label: 'KLM Flying Blue', url: 'https://www.flyingblue.com' },
+              { label: 'Flying Blue', url: 'https://www.flyingblue.com' },
+              { label: 'Booking.com', url: `https://www.booking.com/searchresults.fr.html?dest_type=city&checkin=${departDate}&checkout=${returnDate || ''}` },
             ].map((link) => (
               <a
                 key={link.label}
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs px-3 py-1.5 rounded-lg transition-all hover:text-white"
-                style={{ background: 'rgba(255,255,255,0.06)', color: '#64748b', border: '1px solid rgba(255,255,255,0.08)' }}
+                style={{
+                  fontSize: '12px',
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-muted)',
+                  textDecoration: 'none',
+                  transition: 'all 0.12s ease',
+                  backgroundColor: 'transparent',
+                }}
+                onMouseEnter={(e) => {
+                  (e.target as HTMLAnchorElement).style.color = 'var(--accent)';
+                  (e.target as HTMLAnchorElement).style.borderColor = 'var(--accent)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.target as HTMLAnchorElement).style.color = 'var(--text-muted)';
+                  (e.target as HTMLAnchorElement).style.borderColor = 'var(--border-subtle)';
+                }}
               >
                 {link.label} ↗
               </a>
             ))}
           </div>
-        </div>
 
+        </div>
       </main>
 
-      <footer className="text-center py-6 text-xs text-slate-600 border-t border-white/5 mt-8">
-        FlightScanner AI — Vols · Points & Miles · Hôtels · Powered by Claude + Web Search · Les prix varient en temps réel
+      <footer style={{
+        textAlign: 'center',
+        padding: '24px',
+        fontSize: '12px',
+        color: 'var(--text-muted)',
+        borderTop: '1px solid var(--border-subtle)',
+      }}>
+        FlySearch — Vols · Miles & Points · Hôtels · Analyse IA + recherche web en temps réel
       </footer>
-    </div>
+    </>
   );
 }
