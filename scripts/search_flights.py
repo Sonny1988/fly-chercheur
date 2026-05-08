@@ -22,6 +22,10 @@ def parse_args():
     parser.add_argument("--seat", choices=["economy", "premium-economy", "business", "first"],
                         default="economy", help="Seat class (default: economy)")
     parser.add_argument("--adults", type=int, default=1, help="Number of adults (default: 1)")
+    parser.add_argument("--children", type=int, default=0, help="Number of children 2-11 (default: 0)")
+    parser.add_argument("--infants-on-lap", type=int, default=0, help="Number of infants on lap <2 (default: 0)")
+    parser.add_argument("--infants-in-seat", type=int, default=0, help="Number of infants in seat <2 (default: 0)")
+    parser.add_argument("--max-stops", type=int, default=None, help="Max stops: 0=nonstop, 1=max 1, 2=max 2, None=any")
     parser.add_argument("--sample-mode", type=int, default=3,
                         help="Sample every N days (default: 3)")
     parser.add_argument("--delay", type=float, default=2.0,
@@ -32,11 +36,17 @@ def parse_args():
 
 
 def search_single_date(origin, destination, date_str, trip_type, return_date_str,
-                       nonstop, seat, adults, currency):
+                       nonstop, seat, adults, currency, children=0, infants_on_lap=0,
+                       infants_in_seat=0, max_stops_override=None):
     """Search flights for a single date. Returns a dict with results or error."""
     from fast_flights import FlightData, Passengers, create_filter, get_flights_from_filter
 
-    max_stops = 0 if nonstop else None
+    if nonstop:
+        max_stops = 0
+    elif max_stops_override is not None:
+        max_stops = max_stops_override
+    else:
+        max_stops = None
 
     flight_data = [
         FlightData(date=date_str, from_airport=origin, to_airport=destination, max_stops=max_stops)
@@ -52,7 +62,8 @@ def search_single_date(origin, destination, date_str, trip_type, return_date_str
         flt = create_filter(
             flight_data=flight_data,
             trip=trip_type,
-            passengers=Passengers(adults=adults),
+            passengers=Passengers(adults=adults, children=children,
+                                  infants_on_lap=infants_on_lap, infants_in_seat=infants_in_seat),
             seat=seat,
             max_stops=max_stops,
         )
@@ -147,6 +158,10 @@ def main():
             seat=args.seat,
             adults=args.adults,
             currency=args.currency,
+            children=args.children,
+            infants_on_lap=args.infants_on_lap,
+            infants_in_seat=args.infants_in_seat,
+            max_stops_override=args.max_stops,
         )
         all_results.append(result)
 
@@ -193,6 +208,10 @@ def main():
             "seat": args.seat,
             "currency": args.currency,
             "adults": args.adults,
+            "children": args.children,
+            "infants_on_lap": args.infants_on_lap,
+            "infants_in_seat": args.infants_in_seat,
+            "max_stops": args.max_stops,
         },
         "search_summary": {
             "total_dates_searched": len(sample_dates),

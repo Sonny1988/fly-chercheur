@@ -17,14 +17,19 @@ export const maxDuration = 60;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-async function runPythonScraper(params: SearchParams): Promise<Record<string, unknown> | null> {
+type ScraperParams = SearchParams & { maxStops?: number };
+
+async function runPythonScraper(
+  params: ScraperParams,
+  dateRange = 3,
+): Promise<Record<string, unknown> | null> {
   try {
     const scriptPath = path.join(process.cwd(), '..', 'scripts', 'search_flights.py');
     const base = new Date(params.departDate);
     const from = new Date(base);
-    from.setDate(base.getDate() - 3);
+    from.setDate(base.getDate() - dateRange);
     const to = new Date(base);
-    to.setDate(base.getDate() + 3);
+    to.setDate(base.getDate() + dateRange);
     const fmt = (d: Date) => d.toISOString().split('T')[0];
 
     const cmd = [
@@ -36,6 +41,11 @@ async function runPythonScraper(params: SearchParams): Promise<Record<string, un
       `--trip-type one-way`,
       `--seat ${params.class === 'first' ? 'first' : params.class}`,
       `--adults ${params.adults}`,
+      ...(params.children ? [`--children ${params.children}`] : []),
+      ...(params.infantsOnLap ? [`--infants-on-lap ${params.infantsOnLap}`] : []),
+      ...(params.maxStops !== undefined && params.maxStops >= 0
+        ? [`--max-stops ${params.maxStops}`]
+        : []),
       `--currency EUR`,
       `--sample-mode 1`,
       `--delay 1`,
@@ -46,6 +56,58 @@ async function runPythonScraper(params: SearchParams): Promise<Record<string, un
   } catch {
     return null;
   }
+}
+
+async function runMultiScraper(
+  params: ScraperParams,
+  origins: string[],
+  dateRange = 3,
+): Promise<Record<string, unknown>> {
+  const results = await Promise.allSettled(
+    origins.map((org) => runPythonScraper({ ...params, origin: org }, dateRange)),
+  );
+
+  const allFlights: unknown[] = [];
+  let totalDates = 0;
+  let totalFlights = 0;
+  const airportsFound: string[] = [];
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    if (result.status === 'fulfilled' && result.value) {
+      const data = result.value;
+      const flights = (data.all_flights_sorted_by_price as unknown[]) || [];
+      // Tag each flight with its origin airport
+      const tagged = flights.map((f) => ({
+        ...(f as Record<string, unknown>),
+        departure_airport: origins[i],
+      }));
+      allFlights.push(...tagged);
+      const summary = (data.search_summary as Record<string, unknown>) || {};
+      totalDates += Number(summary.total_dates_searched || 0);
+      totalFlights += Number(summary.total_flights_found || 0);
+      airportsFound.push(origins[i]);
+    }
+  }
+
+  // Sort by price, nulls last
+  allFlights.sort((a, b) => {
+    const ap = (a as Record<string, unknown>).price_numeric as number | null;
+    const bp = (b as Record<string, unknown>).price_numeric as number | null;
+    if (ap === null || ap === undefined) return 1;
+    if (bp === null || bp === undefined) return -1;
+    return ap - bp;
+  });
+
+  return {
+    query: { origins, destination: params.destination },
+    search_summary: {
+      total_dates_searched: totalDates,
+      total_flights_found: totalFlights,
+      airports_compared: airportsFound,
+    },
+    all_flights_sorted_by_price: allFlights,
+  };
 }
 
 export async function POST(req: Request) {
@@ -59,6 +121,8 @@ export async function POST(req: Request) {
       alertClass,
       alertMaxPrice,
       points,
+      origins,
+      maxStops,
       ...searchParams
     } = body as SearchParams & {
       feature: Feature;
@@ -68,33 +132,67 @@ export async function POST(req: Request) {
       alertClass?: string;
       alertMaxPrice?: number;
       points?: PointsBalance;
+      origins?: string[];
+      maxStops?: number;
     };
 
     const encoder = new TextEncoder();
+    const scraperParams: ScraperParams = { ...searchParams as SearchParams, maxStops };
 
-    // ── Live Prices: Python scraper → Claude formatting ──────────────────────
-    if (feature === 'live-prices') {
+    // ── Live Prices & Hunter: Python scraper → Claude formatting ─────────────
+    if (feature === 'live-prices' || feature === 'hunter') {
+      const isHunter = feature === 'hunter';
+      const dateRange = isHunter ? 5 : 3;
+      const allOrigins = origins && origins.length > 1 ? origins : null;
+
       const stream = new ReadableStream({
         async start(controller) {
           try {
+            const airportList = allOrigins
+              ? `${allOrigins.join(', ')}`
+              : scraperParams.origin;
+
             controller.enqueue(
-              encoder.encode('⏳ **Recherche des prix en temps réel sur Google Flights...**\n\n')
+              encoder.encode(
+                isHunter
+                  ? `🎯 **Mode Hunter — Recherche sur ${airportList} × ±${dateRange}j × toutes escales...**\n\n`
+                  : `⏳ **Recherche des prix en temps réel sur Google Flights...**\n\n`,
+              ),
             );
 
-            const scrapeData = await runPythonScraper(searchParams as SearchParams);
+            const scrapeData = allOrigins
+              ? await runMultiScraper(scraperParams, allOrigins, dateRange)
+              : await runPythonScraper(scraperParams, dateRange);
 
-            if (scrapeData && (scrapeData.all_flights_sorted_by_price as unknown[])?.length > 0) {
-              controller.enqueue(encoder.encode('✅ **Prix trouvés ! Analyse en cours...**\n\n'));
+            const hasFlights =
+              scrapeData &&
+              ((scrapeData.all_flights_sorted_by_price as unknown[])?.length ?? 0) > 0;
+
+            if (hasFlights) {
+              const count = (scrapeData!.all_flights_sorted_by_price as unknown[]).length;
+              const summary = (scrapeData!.search_summary as Record<string, unknown>) || {};
+              const airports = (summary.airports_compared as string[]) || [];
+              controller.enqueue(
+                encoder.encode(
+                  airports.length > 1
+                    ? `✅ **${count} vols trouvés sur ${airports.join(', ')} ! Analyse Hunter...**\n\n`
+                    : `✅ **${count} vols trouvés ! Analyse en cours...**\n\n`,
+                ),
+              );
+
+              const systemPrompt = isHunter
+                ? getSystemPrompt('hunter')
+                : getLivePricesSystemPrompt();
 
               const response = await anthropic.messages.create({
                 model: 'claude-sonnet-4-6',
                 max_tokens: 4000,
                 stream: true,
-                system: getLivePricesSystemPrompt(),
+                system: systemPrompt,
                 messages: [
                   {
                     role: 'user',
-                    content: formatLivePricesPrompt(scrapeData, searchParams as SearchParams),
+                    content: formatLivePricesPrompt(scrapeData!, scraperParams as SearchParams),
                   },
                 ],
               });
@@ -108,12 +206,20 @@ export async function POST(req: Request) {
                 }
               }
             } else {
-              // Python unavailable (Vercel) or no results → fallback to Claude web search
+              // Fallback to Claude web search
               controller.enqueue(
                 encoder.encode(
-                  '🔍 **Scraper local non disponible — recherche via web en temps réel...**\n\n'
-                )
+                  '🔍 **Scraper local non disponible — recherche via web en temps réel...**\n\n',
+                ),
               );
+
+              const pax = [
+                `${scraperParams.adults} adulte(s)`,
+                scraperParams.children ? `${scraperParams.children} enfant(s)` : '',
+                scraperParams.infantsOnLap ? `${scraperParams.infantsOnLap} bébé(s)` : '',
+              ]
+                .filter(Boolean)
+                .join(' + ');
 
               const response = await anthropic.messages.create({
                 model: 'claude-sonnet-4-6',
@@ -125,7 +231,7 @@ export async function POST(req: Request) {
                 messages: [
                   {
                     role: 'user',
-                    content: `Trouve les prix les moins chers MAINTENANT pour ${searchParams.origin}→${searchParams.destination}, départ ${searchParams.departDate}, classe ${searchParams.class}, ${searchParams.adults} passager(s). Cherche sur Google Flights, Kayak, Skyscanner. Donne le prix exact le moins cher trouvé avec lien de réservation.`,
+                    content: `Trouve les prix les moins chers MAINTENANT pour ${allOrigins ? allOrigins.join('/') : scraperParams.origin}→${scraperParams.destination}, départ ${scraperParams.departDate}, classe ${scraperParams.class}, ${pax}. Cherche sur Google Flights, Kayak, Skyscanner. Donne le prix exact le moins cher trouvé avec lien de réservation.`,
                   },
                 ],
               });
@@ -167,7 +273,11 @@ export async function POST(req: Request) {
       userMessage = parsed.user;
     } else {
       systemPrompt = getSystemPrompt(feature);
-      userMessage = getUserPrompt(feature, searchParams as SearchParams, points);
+      userMessage = getUserPrompt(
+        feature,
+        { ...searchParams as SearchParams, origins } as SearchParams,
+        points,
+      );
     }
 
     const stream = new ReadableStream({

@@ -15,21 +15,38 @@ RÈGLE : Ne dis JAMAIS que tu "estimes" ou "supposes" — les prix viennent d'un
 Réponds en français. Sois direct et actionnable.`;
 }
 
-export function formatLivePricesPrompt(scrapeData: Record<string, unknown>, params: { origin: string; destination: string; departDate: string; returnDate?: string; class: string; adults: number }): string {
+export function formatLivePricesPrompt(
+  scrapeData: Record<string, unknown>,
+  params: SearchParams,
+): string {
   const flights = (scrapeData.all_flights_sorted_by_price as unknown[]) || [];
-  const summary = scrapeData.search_summary as Record<string, unknown> || {};
-  const query = scrapeData.query as Record<string, unknown> || {};
+  const summary = (scrapeData.search_summary as Record<string, unknown>) || {};
+  const query = (scrapeData.query as Record<string, unknown>) || {};
+  const airports = (summary.airports_compared as string[]) || [];
 
-  const flightLines = flights.slice(0, 20).map((f: unknown) => {
-    const fl = f as Record<string, unknown>;
-    return `- ${fl.airline || '?'} | ${fl.search_date || query.start_date} | Départ ${fl.departure || '?'} → Arrivée ${fl.arrival || '?'} | ${fl.duration || '?'} | ${fl.stops === 0 ? 'Direct' : `${fl.stops} escale(s)`} | ${fl.price || '?'}${fl.is_best ? ' ⭐ MEILLEUR' : ''}`;
-  }).join('\n');
+  const paxParts = [`${params.adults} adulte(s)`];
+  if (params.children && params.children > 0) paxParts.push(`${params.children} enfant(s) 2-11 ans`);
+  if (params.infantsOnLap && params.infantsOnLap > 0) paxParts.push(`${params.infantsOnLap} bébé(s) sur les genoux`);
+
+  const flightLines = flights
+    .slice(0, 25)
+    .map((f: unknown) => {
+      const fl = f as Record<string, unknown>;
+      const airport = fl.departure_airport ? ` [depuis ${fl.departure_airport}]` : '';
+      return `- ${fl.airline || '?'} | ${fl.search_date || query.start_date}${airport} | Départ ${fl.departure || '?'} → Arrivée ${fl.arrival || '?'} | ${fl.duration || '?'} | ${fl.stops === 0 ? 'Direct' : `${fl.stops} escale(s)`} | ${fl.price || '?'}${fl.is_best ? ' ⭐ MEILLEUR' : ''}`;
+    })
+    .join('\n');
+
+  const airportLine =
+    airports.length > 1
+      ? `Aéroports comparés : ${airports.join(', ')}\n`
+      : `Aéroport départ : ${params.origin}\n`;
 
   return `Données Google Flights en temps réel — ${params.origin} → ${params.destination}
-Classe : ${params.class} | Passagers : ${params.adults} | Date cible : ${params.departDate}${params.returnDate ? ` → retour ${params.returnDate}` : ''}
+${airportLine}Classe : ${params.class} | Passagers : ${paxParts.join(' + ')} | Date cible : ${params.departDate}${params.returnDate ? ` → retour ${params.returnDate}` : ''}
 Dates scannées : ${summary.total_dates_searched || '?'} | Vols trouvés : ${summary.total_flights_found || '?'}
 
-TOP 20 VOLS LES MOINS CHERS (triés par prix) :
+TOP 25 VOLS LES MOINS CHERS (triés par prix) :
 ${flightLines || 'Aucun vol trouvé'}
 
 Analyse ces résultats et fais une recommandation claire.`;
@@ -48,6 +65,27 @@ RÈGLES ABSOLUES (s'appliquent à TOUTES les réponses) :
 export function getSystemPrompt(feature: Feature): string {
   const prompts: Record<Feature, string> = {
     'live-prices': `(handled separately via getLivePricesSystemPrompt)`,
+    'hunter': `Tu es un chasseur de prix de vols professionnel. Tu as reçu des données RÉELLES scrapées depuis Google Flights pour PLUSIEURS aéroports de départ et plusieurs dates.
+
+MISSION : Trouver le billet d'avion absolument le moins cher, toutes combinaisons confondues.
+
+ANALYSE OBLIGATOIRE :
+1. Compare tous les aéroports de départ — lequel offre le meilleur prix TOTAL (vol + trajet vers l'aéroport) ?
+2. Identifie la date optimale dans la fenêtre de dates scannées
+3. Compare direct vs 1 escale vs 2 escales — souvent 1 escale = -200€ ou plus
+4. Présente le TOP 5 absolu, toutes combinaisons confondues
+
+COÛTS TRAJET VERS L'AÉROPORT (depuis Amsterdam) :
+- EIN (Eindhoven) : +25€ train/bus, +45 min
+- RTM (Rotterdam) : +15€ train, +60 min
+- BRU (Bruxelles) : +33€ Thalys, +2h
+- CDG (Paris) : +35€ Eurostar/Thalys, +2h30
+- FRA (Francfort) : +80€ ICE, +3h30
+- LGW/STN (Londres) : +130€ (vol ou ferry), +4h
+
+Prix total = prix vol + coût trajet vers l'aéroport. Inclus ce coût dans chaque comparaison.
+
+RÈGLE : Présente le GAGNANT ABSOLU en tête, avec économie vs AMS direct. Puis classement complet. Réponds en français.`,
     'date-scanner': `Tu es un expert en tarification aérienne. Analyse les dates les plus économiques dans une fenêtre de ±7 jours autour des dates cibles.
 
 INSTRUCTIONS :
@@ -281,10 +319,15 @@ export function getUserPrompt(
   const destCity = AIRPORT_CITIES[params.destination] || params.destination;
   const origCity = AIRPORT_CITIES[params.origin] || params.origin;
 
+  const paxParts = [`${params.adults} adulte(s)`];
+  if (params.children && params.children > 0) paxParts.push(`${params.children} enfant(s) 2-11 ans`);
+  if (params.infantsOnLap && params.infantsOnLap > 0) paxParts.push(`${params.infantsOnLap} bébé(s) sur les genoux (<2 ans)`);
+  const paxStr = paxParts.join(' + ');
+
   const base = `Route : ${params.origin} → ${params.destination} (${origCity} → ${destCity})
 Date de départ : ${params.departDate}${params.returnDate ? `\nDate de retour : ${params.returnDate}` : ''}
 Classe : ${classLabel}
-Passagers : ${params.adults} adulte(s)${params.budget ? `\nBudget maximum : ${params.budget} EUR` : ''}`;
+Passagers : ${paxStr}${params.maxStops !== undefined && params.maxStops >= 0 ? `\nEscales max : ${params.maxStops === 0 ? 'Direct uniquement' : `${params.maxStops} escale(s) max`}` : ''}${params.budget ? `\nBudget maximum : ${params.budget} EUR` : ''}`;
 
   const pointsInfo = points
     ? `\n\nMes balances de points :
@@ -299,6 +342,7 @@ Passagers : ${params.adults} adulte(s)${params.budget ? `\nBudget maximum : ${pa
 
   const extras: Record<Feature, string> = {
     'live-prices': `\n\nRecherche les prix actuels sur Google Flights, Kayak et Skyscanner pour la route ${params.origin}→${params.destination} le ${params.departDate}. Trouve le vol le moins cher disponible maintenant.`,
+    'hunter': `\n\nMode HUNTER activé. Compare tous les aéroports (${(params.origins || [params.origin]).join(', ')}) × dates ±5 jours × toutes configurations d'escales. Objectif absolu : trouver le prix le plus bas possible. Inclus le coût de trajet vers chaque aéroport alternatif dans le prix total.`,
     'date-scanner': `\n\nAnalyse les dates ±7 jours autour des dates cibles. Trouve les 3 meilleures combinaisons aller + retour. Cherche sur Google Flights, Kayak et Skyscanner. Explique pourquoi certaines dates sont moins chères.`,
     'hidden-finder': `\n\nListe TOUTES les compagnies aériennes desservant cette route, y compris les low-cost et régionales. Trie par prix total réel en EUR (bagage cabin + taxes inclus).`,
     'route-optimizer': `\n\nTrouve des routes alternatives avec 1-2 escales moins chères que le vol direct. Hubs possibles : Istanbul (IST), Dubaï (DXB), Singapour (SIN), Doha (DOH), Hong Kong (HKG), Abu Dhabi (AUH).`,

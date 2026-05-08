@@ -4,6 +4,7 @@ export type SearchMode = 'flights' | 'points' | 'hotel';
 
 export type Feature =
   | 'live-prices'
+  | 'hunter'
   | 'date-scanner'
   | 'hidden-finder'
   | 'route-optimizer'
@@ -25,6 +26,10 @@ export interface SearchParams {
   tripType: TripType;
   class: TripClass;
   adults: number;
+  children?: number;
+  infantsOnLap?: number;
+  maxStops?: number; // -1=any, 0=direct, 1=max 1, 2=max 2
+  origins?: string[]; // multi-airport departure
   budget?: number;
 }
 
@@ -93,6 +98,14 @@ const FLIGHT_FEATURES: {
     icon: '🔴',
     description: 'Vrais prix Google Flights en temps réel',
     color: 'from-red-500/20 to-red-600/20 border-red-500/30',
+    mode: 'flights',
+  },
+  {
+    id: 'hunter',
+    label: '🎯 Hunter',
+    icon: '🎯',
+    description: 'Chasse exhaustive : tous aéroports × dates × escales',
+    color: 'from-orange-500/20 to-red-600/20 border-orange-500/30',
     mode: 'flights',
   },
   {

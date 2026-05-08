@@ -55,6 +55,11 @@ export default function Home() {
   const [tripType, setTripType] = useState<TripType>('round-trip');
   const [seatClass, setSeatClass] = useState<TripClass>('economy');
   const [adults, setAdults] = useState(1);
+  const [children, setChildren] = useState(0);
+  const [infantsOnLap, setInfantsOnLap] = useState(0);
+  const [maxStops, setMaxStops] = useState(-1);
+  const [additionalOrigins, setAdditionalOrigins] = useState<string[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [budget, setBudget] = useState('');
 
   // Feature state
@@ -97,6 +102,12 @@ export default function Home() {
   const savePoints = (updated: PointsBalance) => {
     setPoints(updated);
     localStorage.setItem('flysearch-points', JSON.stringify(updated));
+  };
+
+  const toggleOrigin = (code: string) => {
+    setAdditionalOrigins((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
   };
 
   const handleModeChange = (m: SearchMode) => {
@@ -147,6 +158,10 @@ export default function Home() {
           tripType,
           class: seatClass,
           adults,
+          children: children > 0 ? children : undefined,
+          infantsOnLap: infantsOnLap > 0 ? infantsOnLap : undefined,
+          maxStops: maxStops >= 0 ? maxStops : undefined,
+          origins: additionalOrigins.length > 0 ? [origin, ...additionalOrigins] : undefined,
           budget: budget ? Number(budget) : undefined,
           ...(mode === 'points' ? { points } : {}),
         },
@@ -322,10 +337,10 @@ export default function Home() {
             )}
 
             <label className="field">
-              <span className="field-label">Passagers</span>
+              <span className="field-label">Adultes</span>
               <select
                 className="field-input"
-                style={{ width: '72px' }}
+                style={{ width: '64px' }}
                 value={adults}
                 onChange={(e) => setAdults(Number(e.target.value))}
               >
@@ -356,6 +371,133 @@ export default function Home() {
               {loading ? 'Analyse...' : 'Analyser →'}
             </button>
           </div>
+
+          {/* Advanced options toggle */}
+          <div style={{ display: 'flex', alignItems: 'center', marginTop: '6px' }}>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              style={{
+                fontSize: '12px',
+                color: 'var(--text-muted)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px 0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              {showAdvanced ? '▲' : '▼'} Options avancées
+              {(children > 0 || infantsOnLap > 0 || additionalOrigins.length > 0 || maxStops >= 0) && (
+                <span style={{
+                  fontSize: '10px',
+                  padding: '1px 7px',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--accent)',
+                  color: '#fff',
+                  fontWeight: 600,
+                }}>actif</span>
+              )}
+            </button>
+          </div>
+
+          {/* Advanced options panel */}
+          {showAdvanced && (
+            <div style={{
+              padding: '16px 0 8px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '28px',
+              alignItems: 'flex-start',
+              borderTop: '1px solid var(--border-subtle)',
+              marginTop: '8px',
+            }}>
+
+              {/* Passengers breakdown */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-muted)' }}>Passagers</span>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <label className="field">
+                    <span className="field-label">Enfants 2-11</span>
+                    <select className="field-input" style={{ width: '64px' }} value={children} onChange={(e) => setChildren(Number(e.target.value))}>
+                      {[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="field-label">Bébés &lt;2 ans</span>
+                    <select className="field-input" style={{ width: '64px' }} value={infantsOnLap} onChange={(e) => setInfantsOnLap(Math.min(Number(e.target.value), adults))}>
+                      {[0, 1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {(children > 0 || infantsOnLap > 0) && (
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0, maxWidth: '300px', lineHeight: 1.4 }}>
+                    Bébés sur les genoux (~10% tarif adulte). Enfants 2-11 : siège requis (~75% tarif).
+                  </p>
+                )}
+              </div>
+
+              {/* Stops filter */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-muted)' }}>Escales max</span>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {([
+                    { value: -1, label: 'Tous vols' },
+                    { value: 0, label: 'Direct' },
+                    { value: 1, label: '≤ 1 escale' },
+                    { value: 2, label: '≤ 2 escales' },
+                  ] as { value: number; label: string }[]).map((opt) => (
+                    <button key={opt.value} type="button" onClick={() => setMaxStops(opt.value)} style={{
+                      fontSize: '12px', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer',
+                      border: `1px solid ${maxStops === opt.value ? 'var(--accent)' : 'var(--border)'}`,
+                      backgroundColor: maxStops === opt.value ? 'var(--bg-elevated)' : 'transparent',
+                      color: maxStops === opt.value ? 'var(--accent)' : 'var(--text-muted)',
+                      fontWeight: maxStops === opt.value ? 600 : 400,
+                    }}>{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Multi-airport departure */}
+              {mode !== 'hotel' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-muted)' }}>Comparer aussi depuis</span>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {([
+                      { code: 'BRU', label: 'BRU · Bruxelles' },
+                      { code: 'FRA', label: 'FRA · Francfort' },
+                      { code: 'CDG', label: 'CDG · Paris' },
+                      { code: 'EIN', label: 'EIN · Eindhoven' },
+                      { code: 'RTM', label: 'RTM · Rotterdam' },
+                      { code: 'LGW', label: 'LGW · Londres' },
+                      { code: 'STN', label: 'STN · Stansted' },
+                    ] as { code: string; label: string }[])
+                      .filter(({ code }) => code !== origin)
+                      .map(({ code, label }) => (
+                        <button key={code} type="button" onClick={() => toggleOrigin(code)} style={{
+                          fontSize: '12px', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer',
+                          border: `1px solid ${additionalOrigins.includes(code) ? 'var(--accent)' : 'var(--border)'}`,
+                          backgroundColor: additionalOrigins.includes(code) ? 'var(--bg-elevated)' : 'transparent',
+                          color: additionalOrigins.includes(code) ? 'var(--accent)' : 'var(--text-muted)',
+                          fontWeight: additionalOrigins.includes(code) ? 600 : 400,
+                        }}>
+                          {additionalOrigins.includes(code) ? '✓ ' : ''}{label}
+                        </button>
+                      ))}
+                  </div>
+                  {additionalOrigins.length > 0 && (
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                      {additionalOrigins.length} aéroport(s) ajouté(s) — utilisez 🎯 Hunter pour tout comparer simultanément.
+                    </p>
+                  )}
+                </div>
+              )}
+
+            </div>
+          )}
+
         </div>
       </div>
 
