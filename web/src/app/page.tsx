@@ -239,7 +239,7 @@ export default function Home() {
 
             {mode !== 'hotel' && (
               <>
-                <div className="field">
+                <label className="field">
                   <span className="field-label">Départ</span>
                   <input
                     list="airports"
@@ -249,12 +249,12 @@ export default function Home() {
                     onChange={(e) => setOrigin(e.target.value.toUpperCase().slice(0, 3))}
                     placeholder="AMS"
                   />
-                </div>
+                </label>
                 <span className="arrow">→</span>
               </>
             )}
 
-            <div className="field">
+            <label className="field">
               <span className="field-label">{mode === 'hotel' ? 'Destination' : 'Arrivée'}</span>
               <input
                 list="airports"
@@ -264,10 +264,10 @@ export default function Home() {
                 onChange={(e) => setDestination(e.target.value.toUpperCase().slice(0, 3))}
                 placeholder="BKK"
               />
-            </div>
+            </label>
 
             {mode !== 'hotel' && (
-              <div className="field">
+              <label className="field">
                 <span className="field-label">Type</span>
                 <select
                   className="field-input"
@@ -278,10 +278,10 @@ export default function Home() {
                   <option value="one-way">Aller simple</option>
                   <option value="round-trip">Aller-retour</option>
                 </select>
-              </div>
+              </label>
             )}
 
-            <div className="field">
+            <label className="field">
               <span className="field-label">{dateLabel1}</span>
               <input
                 type="date"
@@ -290,10 +290,10 @@ export default function Home() {
                 value={departDate}
                 onChange={(e) => setDepartDate(e.target.value)}
               />
-            </div>
+            </label>
 
             {(mode === 'hotel' || tripType === 'round-trip') && (
-              <div className="field">
+              <label className="field">
                 <span className="field-label">{dateLabel2}</span>
                 <input
                   type="date"
@@ -302,11 +302,11 @@ export default function Home() {
                   value={returnDate}
                   onChange={(e) => setReturnDate(e.target.value)}
                 />
-              </div>
+              </label>
             )}
 
             {mode !== 'hotel' && (
-              <div className="field">
+              <label className="field">
                 <span className="field-label">Classe</span>
                 <select
                   className="field-input"
@@ -318,10 +318,10 @@ export default function Home() {
                   <option value="business">Affaires</option>
                   <option value="first">Première</option>
                 </select>
-              </div>
+              </label>
             )}
 
-            <div className="field">
+            <label className="field">
               <span className="field-label">Passagers</span>
               <select
                 className="field-input"
@@ -333,9 +333,9 @@ export default function Home() {
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>
-            </div>
+            </label>
 
-            <div className="field">
+            <label className="field">
               <span className="field-label">Budget max €</span>
               <input
                 type="number"
@@ -346,7 +346,7 @@ export default function Home() {
                 placeholder="900"
                 min="0"
               />
-            </div>
+            </label>
 
             <button
               className={`analyze-btn${canAnalyze ? ' active' : ''}`}
@@ -432,7 +432,7 @@ export default function Home() {
               <div className="panel-body">
                 {/* Alert creation form */}
                 <div className="alert-form">
-                  <div className="field">
+                  <label className="field">
                     <span className="field-label">De</span>
                     <input
                       list="airports"
@@ -444,8 +444,8 @@ export default function Home() {
                       }
                       placeholder="AMS"
                     />
-                  </div>
-                  <div className="field">
+                  </label>
+                  <label className="field">
                     <span className="field-label">Vers</span>
                     <input
                       list="airports"
@@ -457,8 +457,8 @@ export default function Home() {
                       }
                       placeholder="BKK"
                     />
-                  </div>
-                  <div className="field">
+                  </label>
+                  <label className="field">
                     <span className="field-label">Classe</span>
                     <select
                       className="field-input"
@@ -470,8 +470,8 @@ export default function Home() {
                       <option value="business">Affaires</option>
                       <option value="first">Première</option>
                     </select>
-                  </div>
-                  <div className="field">
+                  </label>
+                  <label className="field">
                     <span className="field-label">Prix max €</span>
                     <input
                       type="number"
@@ -482,8 +482,8 @@ export default function Home() {
                       placeholder="500"
                       min="0"
                     />
-                  </div>
-                  <div className="field">
+                  </label>
+                  <label className="field">
                     <span className="field-label">Email</span>
                     <input
                       type="email"
@@ -493,7 +493,7 @@ export default function Home() {
                       onChange={(e) => setAlertForm({ ...alertForm, email: e.target.value })}
                       placeholder="vous@email.com"
                     />
-                  </div>
+                  </label>
                   <button
                     className="add-alert-btn"
                     onClick={addAlert}
