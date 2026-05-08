@@ -21,8 +21,8 @@ type ScraperParams = SearchParams & { maxStops?: number };
 
 async function runPythonScraper(
   params: ScraperParams,
-  dateRange = 3,
-): Promise<Record<string, unknown> | null> {
+  dateRange = 0,
+): Promise<{ data: Record<string, unknown> | null; scraperError?: string }> {
   try {
     const scriptPath = path.join(process.cwd(), '..', 'scripts', 'search_flights.py');
     const base = new Date(params.departDate);
@@ -32,13 +32,23 @@ async function runPythonScraper(
     to.setDate(base.getDate() + dateRange);
     const fmt = (d: Date) => d.toISOString().split('T')[0];
 
+    const tripType = params.tripType || 'one-way';
+    const returnOffset =
+      tripType === 'round-trip' && params.returnDate
+        ? Math.ceil(
+            (new Date(params.returnDate).getTime() - new Date(params.departDate).getTime()) /
+              86400000,
+          )
+        : null;
+
     const cmd = [
       `python "${scriptPath}"`,
       `--origin ${params.origin}`,
       `--destination ${params.destination}`,
       `--start-date ${fmt(from)}`,
       `--end-date ${fmt(to)}`,
-      `--trip-type one-way`,
+      `--trip-type ${tripType}`,
+      ...(returnOffset !== null ? [`--return-offset ${returnOffset}`] : []),
       `--seat ${params.class === 'first' ? 'first' : params.class}`,
       `--adults ${params.adults}`,
       ...(params.children ? [`--children ${params.children}`] : []),
@@ -52,17 +62,19 @@ async function runPythonScraper(
     ].join(' ');
 
     const { stdout } = await execAsync(cmd, { timeout: 50000 });
-    return JSON.parse(stdout) as Record<string, unknown>;
-  } catch {
-    return null;
+    return { data: JSON.parse(stdout) as Record<string, unknown> };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[scraper error]', msg);
+    return { data: null, scraperError: msg };
   }
 }
 
 async function runMultiScraper(
   params: ScraperParams,
   origins: string[],
-  dateRange = 3,
-): Promise<Record<string, unknown>> {
+  dateRange = 0,
+): Promise<{ data: Record<string, unknown>; scraperErrors: string[] }> {
   const results = await Promise.allSettled(
     origins.map((org) => runPythonScraper({ ...params, origin: org }, dateRange)),
   );
@@ -71,22 +83,25 @@ async function runMultiScraper(
   let totalDates = 0;
   let totalFlights = 0;
   const airportsFound: string[] = [];
+  const scraperErrors: string[] = [];
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i];
-    if (result.status === 'fulfilled' && result.value) {
-      const data = result.value;
-      const flights = (data.all_flights_sorted_by_price as unknown[]) || [];
-      // Tag each flight with its origin airport
-      const tagged = flights.map((f) => ({
-        ...(f as Record<string, unknown>),
-        departure_airport: origins[i],
-      }));
-      allFlights.push(...tagged);
-      const summary = (data.search_summary as Record<string, unknown>) || {};
-      totalDates += Number(summary.total_dates_searched || 0);
-      totalFlights += Number(summary.total_flights_found || 0);
-      airportsFound.push(origins[i]);
+    if (result.status === 'fulfilled') {
+      const { data, scraperError } = result.value;
+      if (scraperError) scraperErrors.push(`${origins[i]}: ${scraperError}`);
+      if (data) {
+        const flights = (data.all_flights_sorted_by_price as unknown[]) || [];
+        const tagged = flights.map((f) => ({
+          ...(f as Record<string, unknown>),
+          departure_airport: origins[i],
+        }));
+        allFlights.push(...tagged);
+        const summary = (data.search_summary as Record<string, unknown>) || {};
+        totalDates += Number(summary.total_dates_searched || 0);
+        totalFlights += Number(summary.total_flights_found || 0);
+        airportsFound.push(origins[i]);
+      }
     }
   }
 
@@ -100,13 +115,16 @@ async function runMultiScraper(
   });
 
   return {
-    query: { origins, destination: params.destination },
-    search_summary: {
-      total_dates_searched: totalDates,
-      total_flights_found: totalFlights,
-      airports_compared: airportsFound,
+    data: {
+      query: { origins, destination: params.destination },
+      search_summary: {
+        total_dates_searched: totalDates,
+        total_flights_found: totalFlights,
+        airports_compared: airportsFound,
+      },
+      all_flights_sorted_by_price: allFlights,
     },
-    all_flights_sorted_by_price: allFlights,
+    scraperErrors,
   };
 }
 
@@ -142,15 +160,14 @@ export async function POST(req: Request) {
     // ── Live Prices & Hunter: Python scraper → Claude formatting ─────────────
     if (feature === 'live-prices' || feature === 'hunter') {
       const isHunter = feature === 'hunter';
-      const dateRange = isHunter ? 5 : 3;
+      // live-prices = date exacte uniquement (dateRange=0), hunter = ±5j pour flexibilité
+      const dateRange = isHunter ? 5 : 0;
       const allOrigins = origins && origins.length > 1 ? origins : null;
 
       const stream = new ReadableStream({
         async start(controller) {
           try {
-            const airportList = allOrigins
-              ? `${allOrigins.join(', ')}`
-              : scraperParams.origin;
+            const airportList = allOrigins ? allOrigins.join(', ') : scraperParams.origin;
 
             controller.enqueue(
               encoder.encode(
@@ -160,17 +177,19 @@ export async function POST(req: Request) {
               ),
             );
 
-            const scrapeData = allOrigins
+            const raw = allOrigins
               ? await runMultiScraper(scraperParams, allOrigins, dateRange)
               : await runPythonScraper(scraperParams, dateRange);
 
+            const flightData = raw.data;
+            const scraperErrors = 'scraperErrors' in raw ? raw.scraperErrors : (raw.scraperError ? [raw.scraperError] : []);
             const hasFlights =
-              scrapeData &&
-              ((scrapeData.all_flights_sorted_by_price as unknown[])?.length ?? 0) > 0;
+              flightData &&
+              ((flightData.all_flights_sorted_by_price as unknown[])?.length ?? 0) > 0;
 
             if (hasFlights) {
-              const count = (scrapeData!.all_flights_sorted_by_price as unknown[]).length;
-              const summary = (scrapeData!.search_summary as Record<string, unknown>) || {};
+              const count = (flightData!.all_flights_sorted_by_price as unknown[]).length;
+              const summary = (flightData!.search_summary as Record<string, unknown>) || {};
               const airports = (summary.airports_compared as string[]) || [];
               controller.enqueue(
                 encoder.encode(
@@ -192,7 +211,7 @@ export async function POST(req: Request) {
                 messages: [
                   {
                     role: 'user',
-                    content: formatLivePricesPrompt(scrapeData!, scraperParams as SearchParams),
+                    content: formatLivePricesPrompt(flightData!, scraperParams as SearchParams),
                   },
                 ],
               });
@@ -206,44 +225,38 @@ export async function POST(req: Request) {
                 }
               }
             } else {
-              // Fallback to Claude web search
-              controller.enqueue(
-                encoder.encode(
-                  '🔍 **Scraper local non disponible — recherche via web en temps réel...**\n\n',
-                ),
-              );
-
-              const pax = [
+              // Scraper a échoué — afficher la raison et des liens directs filtrés
+              const reason = scraperErrors.length > 0 ? scraperErrors.join(' | ') : 'Aucun vol retourné';
+              const orig = allOrigins ? allOrigins[0] : scraperParams.origin;
+              const dest = scraperParams.destination;
+              const dep = scraperParams.departDate;
+              const ret = scraperParams.returnDate || '';
+              const paxStr = [
                 `${scraperParams.adults} adulte(s)`,
                 scraperParams.children ? `${scraperParams.children} enfant(s)` : '',
                 scraperParams.infantsOnLap ? `${scraperParams.infantsOnLap} bébé(s)` : '',
-              ]
-                .filter(Boolean)
-                .join(' + ');
+              ].filter(Boolean).join(' + ');
 
-              const response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-6',
-                max_tokens: 4000,
-                stream: true,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
-                system: `${getLivePricesSystemPrompt()}\n\nTu n'as pas accès aux données scrapées. Utilise web_search pour chercher les prix actuels sur Google Flights, Kayak et Skyscanner. Fais plusieurs recherches ciblées pour trouver le prix le plus bas disponible maintenant.`,
-                messages: [
-                  {
-                    role: 'user',
-                    content: `Trouve les prix les moins chers MAINTENANT pour ${allOrigins ? allOrigins.join('/') : scraperParams.origin}→${scraperParams.destination}, départ ${scraperParams.departDate}, classe ${scraperParams.class}, ${pax}. Cherche sur Google Flights, Kayak, Skyscanner. Donne le prix exact le moins cher trouvé avec lien de réservation.`,
-                  },
-                ],
-              });
+              // Liens directs pré-filtrés (date + passagers exacts)
+              const gflights = `https://www.google.com/travel/flights/search?q=Flights+from+${orig}+to+${dest}+on+${dep}${ret ? `+returning+${ret}` : ''}&curr=EUR`;
+              const skyscanner = `https://www.skyscanner.net/transport/flights/${orig.toLowerCase()}/${dest.toLowerCase()}/${dep.replace(/-/g, '')}/${ret ? ret.replace(/-/g, '') + '/' : ''}`;
+              const kayak = `https://www.kayak.fr/flights/${orig}-${dest}/${dep}${ret ? '/' + ret : ''}/${scraperParams.adults}adults`;
 
-              for await (const event of response) {
-                if (
-                  event.type === 'content_block_delta' &&
-                  event.delta.type === 'text_delta'
-                ) {
-                  controller.enqueue(encoder.encode(event.delta.text));
-                }
-              }
+              controller.enqueue(
+                encoder.encode(
+                  `❌ **Scraper Google Flights indisponible** — Raison : \`${reason}\`\n\n` +
+                  `**Paramètres exacts de ta recherche :**\n` +
+                  `- Route : ${orig} → ${dest}\n` +
+                  `- Départ : ${dep}${ret ? ` | Retour : ${ret}` : ''}\n` +
+                  `- Passagers : ${paxStr}\n` +
+                  `- Classe : ${scraperParams.class}\n\n` +
+                  `**Liens de réservation avec ces filtres exacts :**\n` +
+                  `- [Google Flights](${gflights})\n` +
+                  `- [Skyscanner](${skyscanner})\n` +
+                  `- [Kayak](${kayak})\n\n` +
+                  `> Ces liens ouvrent directement la recherche avec ta route et tes dates. Les prix affichés seront exacts pour ta configuration.\n`,
+                ),
+              );
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : 'Erreur inconnue';
