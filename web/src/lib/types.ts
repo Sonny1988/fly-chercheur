@@ -3,11 +3,11 @@ export type TripType = 'one-way' | 'round-trip';
 export type SearchMode = 'flights' | 'points' | 'hotel';
 
 export type Feature =
+  | 'live-prices'
   | 'date-scanner'
   | 'hidden-finder'
   | 'route-optimizer'
   | 'deals-detector'
-  | 'fee-breakdown'
   | 'negotiation-email'
   | 'flexibility-analysis'
   | 'hidden-city'
@@ -88,6 +88,14 @@ const FLIGHT_FEATURES: {
   mode: SearchMode;
 }[] = [
   {
+    id: 'live-prices',
+    label: 'Prix Live 🔴',
+    icon: '🔴',
+    description: 'Vrais prix Google Flights en temps réel',
+    color: 'from-red-500/20 to-red-600/20 border-red-500/30',
+    mode: 'flights',
+  },
+  {
     id: 'date-scanner',
     label: 'Date Scanner',
     icon: '📅',
@@ -117,14 +125,6 @@ const FLIGHT_FEATURES: {
     icon: '💰',
     description: 'Promos actives vérifiées',
     color: 'from-yellow-500/20 to-yellow-600/20 border-yellow-500/30',
-    mode: 'flights',
-  },
-  {
-    id: 'fee-breakdown',
-    label: 'Fee Breakdown',
-    icon: '💸',
-    description: 'Tous les frais cachés',
-    color: 'from-red-500/20 to-red-600/20 border-red-500/30',
     mode: 'flights',
   },
   {

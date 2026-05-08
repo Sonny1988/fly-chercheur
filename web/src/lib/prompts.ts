@@ -1,5 +1,40 @@
 import { Feature, SearchParams, PointsBalance, AIRPORT_CITIES } from './types';
 
+export function getLivePricesSystemPrompt(): string {
+  return `Tu es un expert en tarification aérienne. On t'a fourni des VRAIS prix scrapés en temps réel depuis Google Flights. Analyse-les et produis un rapport clair.
+
+INSTRUCTIONS :
+1. Trie les vols par prix total croissant
+2. Identifie le vol le moins cher absolu et explique pourquoi
+3. Signale les meilleures compagnies, durées, escales
+4. Recommande la meilleure combinaison aller+retour si applicable
+5. Donne des conseils concrets pour réserver (quand, où, astuces)
+6. Compare aux prix habituels sur cette route — est-ce une bonne période ?
+
+RÈGLE : Ne dis JAMAIS que tu "estimes" ou "supposes" — les prix viennent d'une recherche Google Flights en temps réel. Présente-les comme tels.
+Réponds en français. Sois direct et actionnable.`;
+}
+
+export function formatLivePricesPrompt(scrapeData: Record<string, unknown>, params: { origin: string; destination: string; departDate: string; returnDate?: string; class: string; adults: number }): string {
+  const flights = (scrapeData.all_flights_sorted_by_price as unknown[]) || [];
+  const summary = scrapeData.search_summary as Record<string, unknown> || {};
+  const query = scrapeData.query as Record<string, unknown> || {};
+
+  const flightLines = flights.slice(0, 20).map((f: unknown) => {
+    const fl = f as Record<string, unknown>;
+    return `- ${fl.airline || '?'} | ${fl.search_date || query.start_date} | Départ ${fl.departure || '?'} → Arrivée ${fl.arrival || '?'} | ${fl.duration || '?'} | ${fl.stops === 0 ? 'Direct' : `${fl.stops} escale(s)`} | ${fl.price || '?'}${fl.is_best ? ' ⭐ MEILLEUR' : ''}`;
+  }).join('\n');
+
+  return `Données Google Flights en temps réel — ${params.origin} → ${params.destination}
+Classe : ${params.class} | Passagers : ${params.adults} | Date cible : ${params.departDate}${params.returnDate ? ` → retour ${params.returnDate}` : ''}
+Dates scannées : ${summary.total_dates_searched || '?'} | Vols trouvés : ${summary.total_flights_found || '?'}
+
+TOP 20 VOLS LES MOINS CHERS (triés par prix) :
+${flightLines || 'Aucun vol trouvé'}
+
+Analyse ces résultats et fais une recommandation claire.`;
+}
+
 const GLOBAL_RULES = `
 RÈGLES ABSOLUES (s'appliquent à TOUTES les réponses) :
 - INTERDIT : ajouter des disclaimers, avertissements ou notes sur tes "limitations d'accès aux données en temps réel", "prix non disponibles", "estimation basée sur des données historiques". Ces phrases sont BANNIES.
@@ -12,6 +47,7 @@ RÈGLES ABSOLUES (s'appliquent à TOUTES les réponses) :
 
 export function getSystemPrompt(feature: Feature): string {
   const prompts: Record<Feature, string> = {
+    'live-prices': `(handled separately via getLivePricesSystemPrompt)`,
     'date-scanner': `Tu es un expert en tarification aérienne. Analyse les dates les plus économiques dans une fenêtre de ±7 jours autour des dates cibles.
 
 INSTRUCTIONS :
@@ -102,16 +138,6 @@ ERREURS TARIFAIRES — comment les reconnaître :
 Ne donne QUE des prix vérifiés par ta recherche web. Cite la source exacte pour chaque prix.
 Réponds en français.`,
 
-    'fee-breakdown': `Tu es un expert en structure tarifaire aérienne. Décompose TOUS les frais cachés.
-
-INSTRUCTIONS :
-1. Liste tous les frais possibles : bagages (cabin/soute), siège, repas, embarquement prioritaire, changement, annulation, frais de service
-2. Pour chaque frais : montant exact selon compagnie en EUR
-3. Stratégie légale pour éviter ou réduire chaque frais (carte de crédit voyage, statut, bundle, etc.)
-4. Calcule l'économie totale maximale possible
-5. Astuces peu connues (Priority Pass, carte Miles, achat direct vs GDS, etc.)
-
-Format : tableau par compagnie + section stratégies. Réponds en français.`,
 
     'negotiation-email': `Tu es un expert en négociation tarifaire. Rédige un email professionnel pour obtenir un geste commercial.
 
@@ -272,11 +298,11 @@ Passagers : ${params.adults} adulte(s)${params.budget ? `\nBudget maximum : ${pa
     : '';
 
   const extras: Record<Feature, string> = {
+    'live-prices': `\n\nRecherche les prix actuels sur Google Flights, Kayak et Skyscanner pour la route ${params.origin}→${params.destination} le ${params.departDate}. Trouve le vol le moins cher disponible maintenant.`,
     'date-scanner': `\n\nAnalyse les dates ±7 jours autour des dates cibles. Trouve les 3 meilleures combinaisons aller + retour. Cherche sur Google Flights, Kayak et Skyscanner. Explique pourquoi certaines dates sont moins chères.`,
     'hidden-finder': `\n\nListe TOUTES les compagnies aériennes desservant cette route, y compris les low-cost et régionales. Trie par prix total réel en EUR (bagage cabin + taxes inclus).`,
     'route-optimizer': `\n\nTrouve des routes alternatives avec 1-2 escales moins chères que le vol direct. Hubs possibles : Istanbul (IST), Dubaï (DXB), Singapour (SIN), Doha (DOH), Hong Kong (HKG), Abu Dhabi (AUH).`,
     'deals-detector': `\n\nTrouve toutes les promotions actives, codes promo et ventes flash pour cette route. Programmes de fidélité : Flying Blue (KLM), Royal Orchid Plus (Thai), Infinity MileageLands (EVA). Vérifie les dates d'expiration.`,
-    'fee-breakdown': `\n\nDécompose tous les frais annexes pour KLM, Thai Airways et EVA Air sur cette route. Propose des stratégies concrètes et légales pour minimiser chaque frais.`,
     'negotiation-email': `\n\nTrouve les prix concurrents actuels sur Google Flights / Kayak et rédige un email de négociation persuasif pour demander un geste commercial à la compagnie principale (KLM ou Thai Airways). Mentionne le programme Flying Blue pour KLM.`,
     'flexibility-analysis': `\n\nAnalyse les politiques d'annulation et changement pour KLM, Thai Airways et EVA Air sur cette route. Compare tarif souple vs standard. Calcule le coût du risque d'annulation forcée.`,
     'hidden-city': `\n\nÉvalue si des itinéraires avec ${destCity} comme escale intermédiaire depuis ${origCity} sont moins chers que le vol direct. Vérifie sur Skiplagged.com. Analyse les risques concrets et dans quels cas c'est rentable.`,
