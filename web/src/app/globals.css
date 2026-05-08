@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background: #0a0d1a;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.prose th {
+  background: rgba(251, 191, 36, 0.15);
+  padding: 8px 12px;
+  text-align: left;
+  border: 1px solid rgba(255,255,255,0.1);
+  font-weight: 600;
+  color: #fbbf24;
+}
+.prose td {
+  padding: 8px 12px;
+  border: 1px solid rgba(255,255,255,0.08);
+  vertical-align: top;
+}
+.prose tr:nth-child(even) td {
+  background: rgba(255,255,255,0.03);
+}
+.prose h2 {
+  color: #fbbf24;
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+.prose h3 {
+  color: #93c5fd;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.4rem;
+}
+.prose strong {
+  color: #fbbf24;
+}
+.prose code {
+  background: rgba(255,255,255,0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.875em;
+}
+.prose ul li, .prose ol li {
+  margin-bottom: 4px;
+}
+.prose blockquote {
+  border-left: 3px solid #fbbf24;
+  padding-left: 12px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.loading-dots::after {
+  content: '';
+  animation: dots 1.5s infinite;
+}
+@keyframes dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
