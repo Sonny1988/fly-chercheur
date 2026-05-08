@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Feature, SearchParams, PointsBalance } from '@/lib/types';
 import { getSystemPrompt, getUserPrompt, getAlertPrompt } from '@/lib/prompts';
 
+export const maxDuration = 60;
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
