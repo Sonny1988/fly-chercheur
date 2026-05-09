@@ -21,6 +21,13 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
 
+# Ryanair serves secondary airports — map hub IATA to the one Ryanair actually uses
+RYANAIR_HUB_ALIAS = {
+    "IST": "SAW",  # Istanbul: Ryanair → Sabiha Gökçen
+    "BRU": "CRL",  # Brussels: Ryanair → Charleroi
+    "CDG": "BVA",  # Paris: Ryanair → Beauvais
+}
+
 # ── Hub database ────────────────────────────────────────────────────────────
 # Hubs where the main airline prices business class far below European carriers.
 # positioning_airports: best airports to FLY FROM (LCCs depart here)
@@ -165,7 +172,7 @@ def run_google_flights(origin, destination, start_date, end_date, seat, adults,
             "--delay", "1.5",
             "--output", tmp_path,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=120)
         if result.returncode != 0:
             return None, result.stderr[:200]
         with open(tmp_path, "r", encoding="utf-8") as f:
@@ -195,7 +202,7 @@ def run_ryanair(origin, destination, date_from, date_to, currency="EUR", limit=1
             "--currency", currency,
             "--limit", str(limit),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=60)
         if result.returncode != 0:
             return None, result.stderr[:200]
         data = json.loads(result.stdout)
@@ -225,7 +232,7 @@ def run_tequila(origin, destination, date_from, date_to, adults, currency="EUR",
             "--api-key", key,
             "--max-stops", "0",  # positioning = direct only
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', timeout=30)
         if result.returncode != 0:
             return None, result.stderr[:200]
         data = json.loads(result.stdout)
@@ -253,10 +260,11 @@ def find_cheapest_positioning(hub_iata, hub_def, start_date, end_date, adults,
     candidates = []
 
     # 1. Try Ryanair from LCC airports (often cheapest for IST, CMN, etc.)
+    ryanair_hub = RYANAIR_HUB_ALIAS.get(hub_iata, hub_iata)  # e.g. IST → SAW
     for apt in hub_def.get("priority_for_ryanair", []):
         if apt == origin_iata:
             continue  # skip if same as main origin (handled by Google)
-        flights, _ = run_ryanair(apt, hub_iata, start_date, end_date, currency)
+        flights, _ = run_ryanair(apt, ryanair_hub, start_date, end_date, currency)
         if flights:
             best = cheapest(flights)
             if best:
@@ -520,7 +528,8 @@ def main():
             f.write(json_str)
         print(f"Résultats sauvegardés: {args.output}", file=sys.stderr)
     else:
-        print(json_str)
+        sys.stdout.buffer.write(json_str.encode("utf-8"))
+        sys.stdout.buffer.write(b"\n")
 
 
 if __name__ == "__main__":

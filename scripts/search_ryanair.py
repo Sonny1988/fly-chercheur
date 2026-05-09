@@ -136,7 +136,8 @@ def main():
         "all_flights_sorted_by_price": flights,
     }
 
-    print(json.dumps(output, ensure_ascii=False, indent=2))
+    sys.stdout.buffer.write(json.dumps(output, ensure_ascii=False, indent=2).encode("utf-8"))
+    sys.stdout.buffer.write(b"\n")
 
 
 if __name__ == "__main__":

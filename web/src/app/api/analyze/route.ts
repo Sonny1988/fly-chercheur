@@ -366,21 +366,20 @@ export async function POST(req: Request) {
               ),
             );
 
-            // Hunter: Google Flights + Ryanair + Kiwi Tequila + Amadeus in parallel
-            const [raw, ryanairFlights, tequilaFlights, amadeusFlights] = await Promise.all([
+            // Hunter: Google Flights + Ryanair + Kiwi Tequila in parallel
+            const [raw, ryanairFlights, tequilaFlights] = await Promise.all([
               allOrigins
                 ? runMultiScraper(scraperParams, allOrigins, dateRange)
                 : runPythonScraper(scraperParams, dateRange),
               runRyanairScraper(scraperParams, isHunter ? dateRange : 0),
               isHunter ? runTequilaScraper(scraperParams, dateRange) : Promise.resolve([]),
-              isHunter ? runAmadeusScraper(scraperParams) : Promise.resolve([]),
             ]);
 
             const flightData = raw.data;
             const scraperErrors = 'scraperErrors' in raw ? raw.scraperErrors : (raw.scraperError ? [raw.scraperError] : []);
 
-            // Merge all API results into the main dataset
-            const lccFlights = [...ryanairFlights, ...tequilaFlights, ...amadeusFlights];
+            // Merge API results into the main dataset
+            const lccFlights = [...ryanairFlights, ...tequilaFlights];
             if (flightData && lccFlights.length > 0) {
               const existing = (flightData.all_flights_sorted_by_price as unknown[]) || [];
               const merged = [...existing, ...lccFlights];
@@ -395,7 +394,6 @@ export async function POST(req: Request) {
               const summary = (flightData.search_summary as Record<string, unknown>) || {};
               if (ryanairFlights.length > 0) summary.ryanair_lcc_flights = ryanairFlights.length;
               if (tequilaFlights.length > 0) summary.kiwi_tequila_flights = tequilaFlights.length;
-              if (amadeusFlights.length > 0) summary.amadeus_flights = amadeusFlights.length;
             }
             const hasFlights =
               flightData &&
@@ -408,7 +406,6 @@ export async function POST(req: Request) {
               const lccParts = [
                 ryanairFlights.length > 0 ? `${ryanairFlights.length} Ryanair` : '',
                 tequilaFlights.length > 0 ? `${tequilaFlights.length} Kiwi` : '',
-                amadeusFlights.length > 0 ? `${amadeusFlights.length} Amadeus` : '',
               ].filter(Boolean);
               const ryanairNote = lccParts.length > 0 ? ` + ${lccParts.join(' + ')}` : '';
               controller.enqueue(
@@ -477,6 +474,123 @@ export async function POST(req: Request) {
                   `> Ces liens ouvrent directement la recherche avec ta route et tes dates. Les prix affichés seront exacts pour ta configuration.\n`,
                 ),
               );
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Erreur inconnue';
+            controller.enqueue(encoder.encode(`\n\n**Erreur :** ${msg}`));
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    }
+
+    // ── Date Scanner — Ryanair price calendar ────────────────────────────────
+    if (feature === 'date-scanner') {
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            const base = new Date(scraperParams.departDate);
+            const scanFrom = scraperParams.departDate;
+            const scanEnd = new Date(base);
+            scanEnd.setDate(base.getDate() + 90);
+            const fmt = (d: Date) => d.toISOString().split('T')[0];
+            const scanTo = fmt(scanEnd);
+
+            controller.enqueue(
+              encoder.encode(
+                `📅 **Date Scanner — Calendrier Ryanair ${scraperParams.origin} → ${scraperParams.destination} sur 3 mois...**\n\n`,
+              ),
+            );
+
+            const scriptPath = path.join(process.cwd(), '..', 'scripts', 'ryanair_calendar.py');
+            const cmd = [
+              `python "${scriptPath}"`,
+              `--origin ${scraperParams.origin}`,
+              `--destination ${scraperParams.destination}`,
+              `--date-from ${scanFrom}`,
+              `--date-to ${scanTo}`,
+              `--currency EUR`,
+            ].join(' ');
+
+            let calendarData: Record<string, unknown> | null = null;
+            try {
+              const { stdout } = await execAsync(cmd, { timeout: 45000 });
+              calendarData = JSON.parse(stdout) as Record<string, unknown>;
+            } catch {
+              calendarData = null;
+            }
+
+            const hasDays = calendarData &&
+              Object.keys((calendarData.price_by_date as Record<string, unknown>) || {}).length > 0;
+
+            if (hasDays) {
+              const summary = calendarData!.search_summary as Record<string, unknown>;
+              const cheapestDay = (summary?.cheapest_day as Record<string, unknown>);
+              controller.enqueue(
+                encoder.encode(
+                  `✅ **${summary?.days_with_flights} jours avec vols trouvés** — Meilleur prix : **${cheapestDay?.price}€** le ${cheapestDay?.date} depuis ${cheapestDay?.origin}\n\n`,
+                ),
+              );
+
+              const prompt = `Calendrier de prix Ryanair — ${scraperParams.origin} → ${scraperParams.destination}
+Période scannée : ${scanFrom} → ${scanTo}
+Passagers : ${scraperParams.adults} adulte(s)${scraperParams.children ? ` + ${scraperParams.children} enfant(s)` : ''}${scraperParams.infantsOnLap ? ` + ${scraperParams.infantsOnLap} bébé(s)` : ''}
+
+DONNÉES EN TEMPS RÉEL :
+${JSON.stringify(calendarData, null, 2)}
+
+Analyse ce calendrier de prix et produis :
+1. Un tableau heatmap calendrier (semaines en lignes, jours en colonnes) avec les prix par jour — utilise des emojis couleur (🟢<60€ 🟡60-100€ 🔴>100€)
+2. Le top 5 des meilleurs jours avec prix exacts et aéroport de départ
+3. Le meilleur jour de la semaine statistiquement
+4. Le meilleur mois et les fenêtres recommandées
+5. Une recommandation concrète de réservation`;
+
+              const response = await anthropic.messages.create({
+                model: 'claude-sonnet-4-6',
+                max_tokens: 3000,
+                stream: true,
+                system: `Tu es un expert en analyse de prix de vols. Tu reçois de VRAIES données scrapées en temps réel depuis l'API Ryanair.
+Formate les résultats de façon claire et visuelle. Utilise des tableaux markdown pour le calendrier.
+Pour les prix famille, multiplie par le nombre de passagers.`,
+                messages: [{ role: 'user', content: prompt }],
+              });
+
+              for await (const event of response) {
+                if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+                  controller.enqueue(encoder.encode(event.delta.text));
+                }
+              }
+            } else {
+              // Fallback : web search si Ryanair ne dessert pas la route
+              controller.enqueue(
+                encoder.encode(
+                  `ℹ️ _Ryanair ne dessert pas directement cette route — recherche web en cours..._\n\n`,
+                ),
+              );
+              const response = await anthropic.messages.create({
+                model: 'claude-sonnet-4-6',
+                max_tokens: 3000,
+                stream: true,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+                system: getSystemPrompt('date-scanner'),
+                messages: [{ role: 'user', content: getUserPrompt('date-scanner', scraperParams as SearchParams) }],
+              });
+              for await (const event of response) {
+                if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+                  controller.enqueue(encoder.encode(event.delta.text));
+                }
+              }
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : 'Erreur inconnue';
