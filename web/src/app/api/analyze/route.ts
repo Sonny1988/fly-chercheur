@@ -9,6 +9,7 @@ import {
   getAlertPrompt,
   getLivePricesSystemPrompt,
   formatLivePricesPrompt,
+  formatHubArbitragePrompt,
 } from '@/lib/prompts';
 
 const execAsync = promisify(exec);
@@ -128,6 +129,47 @@ async function runTequilaScraper(
   }
 }
 
+async function runAmadeusScraper(
+  params: ScraperParams,
+): Promise<Record<string, unknown>[]> {
+  const clientId = process.env.AMADEUS_CLIENT_ID;
+  const clientSecret = process.env.AMADEUS_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return [];
+
+  try {
+    const scriptPath = path.join(process.cwd(), '..', 'scripts', 'search_amadeus.py');
+    const isRound = params.tripType === 'round-trip' && params.returnDate;
+    const cabinMap: Record<string, string> = {
+      economy: 'ECONOMY', business: 'BUSINESS', first: 'FIRST',
+    };
+
+    const cmd = [
+      `python "${scriptPath}"`,
+      `--origin ${params.origin}`,
+      `--destination ${params.destination}`,
+      `--date ${params.departDate}`,
+      ...(isRound ? [`--return-date ${params.returnDate}`] : []),
+      `--adults ${params.adults}`,
+      ...(params.children ? [`--children ${params.children}`] : []),
+      ...(params.infantsOnLap ? [`--infants ${params.infantsOnLap}`] : []),
+      ...(params.maxStops !== undefined && params.maxStops >= 0
+        ? [`--max-stops ${params.maxStops}`]
+        : []),
+      `--cabin ${cabinMap[params.class] ?? 'ECONOMY'}`,
+      `--currency EUR`,
+      `--limit 20`,
+      `--client-id ${clientId}`,
+      `--client-secret ${clientSecret}`,
+    ].join(' ');
+
+    const { stdout } = await execAsync(cmd, { timeout: 25000 });
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    return (parsed.all_flights_sorted_by_price as Record<string, unknown>[]) || [];
+  } catch {
+    return [];
+  }
+}
+
 async function runRyanairScraper(
   params: ScraperParams,
   dateRange = 3,
@@ -229,6 +271,40 @@ async function runMultiScraper(
   };
 }
 
+async function runHubArbitrage(
+  params: ScraperParams,
+): Promise<{ data: Record<string, unknown> | null; error?: string }> {
+  try {
+    const scriptPath = path.join(process.cwd(), '..', 'scripts', 'search_hub_arbitrage.py');
+    const base = new Date(params.departDate);
+    const end = params.returnDate
+      ? new Date(params.returnDate)
+      : new Date(base.getTime() + 30 * 86400000); // default 30-day window
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+    const seat = params.class === 'economy' ? 'business' : params.class; // default to business
+
+    const cmd = [
+      `python "${scriptPath}"`,
+      `--origin ${params.origin}`,
+      `--destination ${params.destination}`,
+      `--start-date ${fmt(base)}`,
+      `--end-date ${fmt(end)}`,
+      `--seat ${seat}`,
+      `--adults ${params.adults}`,
+      `--currency EUR`,
+      `--max-positioning 350`,
+      `--workers 4`,
+    ].join(' ');
+
+    const { stdout } = await execAsync(cmd, { timeout: 180000 });
+    return { data: JSON.parse(stdout) as Record<string, unknown> };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[hub-arbitrage error]', msg);
+    return { data: null, error: msg };
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -278,20 +354,21 @@ export async function POST(req: Request) {
               ),
             );
 
-            // Hunter: run Google Flights + Ryanair LCC + Kiwi Tequila in parallel
-            const [raw, ryanairFlights, tequilaFlights] = await Promise.all([
+            // Hunter: Google Flights + Ryanair + Kiwi Tequila + Amadeus in parallel
+            const [raw, ryanairFlights, tequilaFlights, amadeusFlights] = await Promise.all([
               allOrigins
                 ? runMultiScraper(scraperParams, allOrigins, dateRange)
                 : runPythonScraper(scraperParams, dateRange),
               isHunter ? runRyanairScraper(scraperParams, dateRange) : Promise.resolve([]),
               isHunter ? runTequilaScraper(scraperParams, dateRange) : Promise.resolve([]),
+              isHunter ? runAmadeusScraper(scraperParams) : Promise.resolve([]),
             ]);
 
             const flightData = raw.data;
             const scraperErrors = 'scraperErrors' in raw ? raw.scraperErrors : (raw.scraperError ? [raw.scraperError] : []);
 
-            // Merge Ryanair + Tequila results into the main dataset
-            const lccFlights = [...ryanairFlights, ...tequilaFlights];
+            // Merge all API results into the main dataset
+            const lccFlights = [...ryanairFlights, ...tequilaFlights, ...amadeusFlights];
             if (flightData && lccFlights.length > 0) {
               const existing = (flightData.all_flights_sorted_by_price as unknown[]) || [];
               const merged = [...existing, ...lccFlights];
@@ -306,6 +383,7 @@ export async function POST(req: Request) {
               const summary = (flightData.search_summary as Record<string, unknown>) || {};
               if (ryanairFlights.length > 0) summary.ryanair_lcc_flights = ryanairFlights.length;
               if (tequilaFlights.length > 0) summary.kiwi_tequila_flights = tequilaFlights.length;
+              if (amadeusFlights.length > 0) summary.amadeus_flights = amadeusFlights.length;
             }
             const hasFlights =
               flightData &&
@@ -318,6 +396,7 @@ export async function POST(req: Request) {
               const lccParts = [
                 ryanairFlights.length > 0 ? `${ryanairFlights.length} Ryanair` : '',
                 tequilaFlights.length > 0 ? `${tequilaFlights.length} Kiwi` : '',
+                amadeusFlights.length > 0 ? `${amadeusFlights.length} Amadeus` : '',
               ].filter(Boolean);
               const ryanairNote = lccParts.length > 0 ? ` + ${lccParts.join(' + ')}` : '';
               controller.enqueue(
