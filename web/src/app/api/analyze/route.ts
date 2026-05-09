@@ -74,6 +74,15 @@ async function runPythonScraper(
 // Ryanair LCC airports within reach of Amsterdam
 const RYANAIR_NEARBY = ['EIN', 'STN', 'BRU', 'CRL'];
 
+// Ryanair uses secondary airports — map main IATA to the one Ryanair actually serves
+const RYANAIR_DEST_ALIAS: Record<string, string> = {
+  IST: 'SAW', // Istanbul: Ryanair → Sabiha Gökçen, not new Istanbul Airport
+  BRU: 'CRL', // Brussels: Ryanair → Charleroi
+  CDG: 'BVA', // Paris: Ryanair → Beauvais
+  BCN: 'GRO', // Barcelona: Ryanair sometimes uses Girona
+  MAD: 'MAD', // Madrid: Ryanair uses MAD directly — no alias needed but kept for clarity
+};
+
 async function runTequilaScraper(
   params: ScraperParams,
   dateRange = 3,
@@ -181,13 +190,16 @@ async function runRyanairScraper(
     const to = new Date(base); to.setDate(base.getDate() + dateRange);
     const fmt = (d: Date) => d.toISOString().split('T')[0];
 
+    // Ryanair may serve a secondary airport for the destination
+    const ryanairDest = RYANAIR_DEST_ALIAS[params.destination] ?? params.destination;
+
     // Run one search per nearby airport in parallel
     const airports = RYANAIR_NEARBY.filter((a) => a !== params.origin);
     const tasks = airports.map(async (airport) => {
       const cmd = [
         `python "${scriptPath}"`,
         `--origin ${airport}`,
-        `--destination ${params.destination}`,
+        `--destination ${ryanairDest}`,
         `--date-from ${fmt(from)}`,
         `--date-to ${fmt(to)}`,
         `--currency EUR`,
@@ -359,7 +371,7 @@ export async function POST(req: Request) {
               allOrigins
                 ? runMultiScraper(scraperParams, allOrigins, dateRange)
                 : runPythonScraper(scraperParams, dateRange),
-              isHunter ? runRyanairScraper(scraperParams, dateRange) : Promise.resolve([]),
+              runRyanairScraper(scraperParams, isHunter ? dateRange : 0),
               isHunter ? runTequilaScraper(scraperParams, dateRange) : Promise.resolve([]),
               isHunter ? runAmadeusScraper(scraperParams) : Promise.resolve([]),
             ]);

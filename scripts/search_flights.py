@@ -229,7 +229,8 @@ def main():
             f.write(json_str)
         print(f"\nResults saved to {args.output}", file=sys.stderr)
     else:
-        print(json_str)
+        sys.stdout.buffer.write(json_str.encode("utf-8"))
+        sys.stdout.buffer.write(b"\n")
 
 
 if __name__ == "__main__":

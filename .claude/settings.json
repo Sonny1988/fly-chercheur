@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($portPid = \\(netstat -ano | Select-String \":3333 \" | Select-String \"LISTENING\" | ForEach-Object { \\($_ -split \"\\\\s+\"\\)[-1] } | Select-Object -First 1\\); if \\($portPid\\) { Stop-Process -Id \\([int]$portPid\\) -Force -ErrorAction SilentlyContinue; Write-Host \"Killed PID $portPid\" } else { Write-Host \"Nothing on 3333\" })",
+      "Edit(~/.claude/skills/playwright-skill/**)",
+      "PowerShell(pip show fast-flights 2>&1)"
+    ]
+  }
+}
