@@ -70,6 +70,52 @@ async function runPythonScraper(
   }
 }
 
+// Ryanair LCC airports within reach of Amsterdam
+const RYANAIR_NEARBY = ['EIN', 'STN', 'BRU', 'CRL'];
+
+async function runRyanairScraper(
+  params: ScraperParams,
+  dateRange = 3,
+): Promise<Record<string, unknown>[]> {
+  try {
+    const scriptPath = path.join(process.cwd(), '..', 'scripts', 'search_ryanair.py');
+    const base = new Date(params.departDate);
+    const from = new Date(base); from.setDate(base.getDate() - dateRange);
+    const to = new Date(base); to.setDate(base.getDate() + dateRange);
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+
+    // Run one search per nearby airport in parallel
+    const airports = RYANAIR_NEARBY.filter((a) => a !== params.origin);
+    const tasks = airports.map(async (airport) => {
+      const cmd = [
+        `python "${scriptPath}"`,
+        `--origin ${airport}`,
+        `--destination ${params.destination}`,
+        `--date-from ${fmt(from)}`,
+        `--date-to ${fmt(to)}`,
+        `--currency EUR`,
+        `--limit 10`,
+      ].join(' ');
+      try {
+        const { stdout } = await execAsync(cmd, { timeout: 20000 });
+        const parsed = JSON.parse(stdout) as Record<string, unknown>;
+        return (parsed.all_flights_sorted_by_price as Record<string, unknown>[]) || [];
+      } catch {
+        return [];
+      }
+    });
+
+    const allResults = await Promise.allSettled(tasks);
+    const combined: Record<string, unknown>[] = [];
+    for (const r of allResults) {
+      if (r.status === 'fulfilled') combined.push(...r.value);
+    }
+    return combined;
+  } catch {
+    return [];
+  }
+}
+
 async function runMultiScraper(
   params: ScraperParams,
   origins: string[],
@@ -177,12 +223,32 @@ export async function POST(req: Request) {
               ),
             );
 
-            const raw = allOrigins
-              ? await runMultiScraper(scraperParams, allOrigins, dateRange)
-              : await runPythonScraper(scraperParams, dateRange);
+            // Hunter: run Google Flights + Ryanair LCC in parallel
+            const [raw, ryanairFlights] = await Promise.all([
+              allOrigins
+                ? runMultiScraper(scraperParams, allOrigins, dateRange)
+                : runPythonScraper(scraperParams, dateRange),
+              isHunter ? runRyanairScraper(scraperParams, dateRange) : Promise.resolve([]),
+            ]);
 
             const flightData = raw.data;
             const scraperErrors = 'scraperErrors' in raw ? raw.scraperErrors : (raw.scraperError ? [raw.scraperError] : []);
+
+            // Merge Ryanair LCC results into the main dataset
+            if (flightData && ryanairFlights.length > 0) {
+              const existing = (flightData.all_flights_sorted_by_price as unknown[]) || [];
+              const merged = [...existing, ...ryanairFlights];
+              merged.sort((a, b) => {
+                const ap = (a as Record<string, unknown>).price_numeric as number | null;
+                const bp = (b as Record<string, unknown>).price_numeric as number | null;
+                if (ap === null || ap === undefined) return 1;
+                if (bp === null || bp === undefined) return -1;
+                return (ap as number) - (bp as number);
+              });
+              flightData.all_flights_sorted_by_price = merged;
+              const summary = (flightData.search_summary as Record<string, unknown>) || {};
+              summary.ryanair_lcc_flights = ryanairFlights.length;
+            }
             const hasFlights =
               flightData &&
               ((flightData.all_flights_sorted_by_price as unknown[])?.length ?? 0) > 0;
@@ -191,11 +257,12 @@ export async function POST(req: Request) {
               const count = (flightData!.all_flights_sorted_by_price as unknown[]).length;
               const summary = (flightData!.search_summary as Record<string, unknown>) || {};
               const airports = (summary.airports_compared as string[]) || [];
+              const ryanairNote = ryanairFlights.length > 0 ? ` + ${ryanairFlights.length} Ryanair LCC` : '';
               controller.enqueue(
                 encoder.encode(
                   airports.length > 1
-                    ? `✅ **${count} vols trouvés sur ${airports.join(', ')} ! Analyse Hunter...**\n\n`
-                    : `✅ **${count} vols trouvés ! Analyse en cours...**\n\n`,
+                    ? `✅ **${count} vols trouvés sur ${airports.join(', ')}${ryanairNote} ! Analyse Hunter...**\n\n`
+                    : `✅ **${count} vols trouvés${ryanairNote} ! Analyse en cours...**\n\n`,
                 ),
               );
 
