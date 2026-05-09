@@ -14,6 +14,9 @@ import {
 
 const execAsync = promisify(exec);
 
+// Vercel (Linux) uses python3; Windows dev uses python
+const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
+
 export const maxDuration = 300; // hub-arbitrage needs up to 3 min
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -43,7 +46,7 @@ async function runPythonScraper(
         : null;
 
     const cmd = [
-      `python "${scriptPath}"`,
+      `${PYTHON} "${scriptPath}"`,
       `--origin ${params.origin}`,
       `--destination ${params.destination}`,
       `--start-date ${fmt(from)}`,
@@ -113,7 +116,7 @@ async function runTequilaScraper(
       : null;
 
     const cmd = [
-      `python "${scriptPath}"`,
+      `${PYTHON} "${scriptPath}"`,
       `--origin ${params.origin}`,
       `--destination ${params.destination}`,
       `--date-from ${fmt(from)}`,
@@ -153,7 +156,7 @@ async function runAmadeusScraper(
     };
 
     const cmd = [
-      `python "${scriptPath}"`,
+      `${PYTHON} "${scriptPath}"`,
       `--origin ${params.origin}`,
       `--destination ${params.destination}`,
       `--date ${params.departDate}`,
@@ -197,7 +200,7 @@ async function runRyanairScraper(
     const airports = RYANAIR_NEARBY.filter((a) => a !== params.origin);
     const tasks = airports.map(async (airport) => {
       const cmd = [
-        `python "${scriptPath}"`,
+        `${PYTHON} "${scriptPath}"`,
         `--origin ${airport}`,
         `--destination ${ryanairDest}`,
         `--date-from ${fmt(from)}`,
@@ -296,7 +299,7 @@ async function runHubArbitrage(
     const seat = params.class === 'economy' ? 'business' : params.class; // default to business
 
     const cmd = [
-      `python "${scriptPath}"`,
+      `${PYTHON} "${scriptPath}"`,
       `--origin ${params.origin}`,
       `--destination ${params.destination}`,
       `--start-date ${fmt(base)}`,
@@ -513,7 +516,7 @@ export async function POST(req: Request) {
 
             const scriptPath = path.join(process.cwd(), '..', 'scripts', 'ryanair_calendar.py');
             const cmd = [
-              `python "${scriptPath}"`,
+              `${PYTHON} "${scriptPath}"`,
               `--origin ${scraperParams.origin}`,
               `--destination ${scraperParams.destination}`,
               `--date-from ${scanFrom}`,
