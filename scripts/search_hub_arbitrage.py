@@ -19,6 +19,11 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+# Load vendor packages when running on Vercel/Lambda (no global pip install)
+_vendor = os.path.join(os.path.dirname(__file__), 'vendor')
+if os.path.isdir(_vendor):
+    sys.path.insert(0, _vendor)
+
 SCRIPT_DIR = Path(__file__).parent
 
 # Ryanair serves secondary airports — map hub IATA to the one Ryanair actually uses

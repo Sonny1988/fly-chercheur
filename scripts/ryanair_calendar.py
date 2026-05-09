@@ -12,7 +12,13 @@ Usage:
 import argparse
 import json
 import sys
+import os
 from collections import defaultdict
+
+# Load vendor packages when running on Vercel/Lambda
+_vendor = os.path.join(os.path.dirname(__file__), 'vendor')
+if os.path.isdir(_vendor):
+    sys.path.insert(0, _vendor)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
