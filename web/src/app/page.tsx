@@ -31,13 +31,27 @@ const EMPTY_POINTS: PointsBalance = {
   avios: 0, chaseUR: 0, amexMR: 0, lifeMiles: 0,
 };
 
+// ── Airport helpers ───────────────────────────────────────────────────────
+
+function airportLabel(code: string): string {
+  const city = AIRPORT_CITIES[code];
+  return city ? `${city} (${code})` : code;
+}
+
+function parseIATA(val: string): string {
+  const m = val.match(/\(([A-Z]{3})\)/);
+  if (m) return m[1];
+  const upper = val.toUpperCase().trim();
+  return upper.length === 3 && AIRPORT_CITIES[upper] ? upper : '';
+}
+
 // ── Airport datalist (rendered once, shared) ──────────────────────────────
 
 function AirportDatalist() {
   return (
     <datalist id="airports">
       {Object.entries(AIRPORT_CITIES).map(([code, city]) => (
-        <option key={code} value={code}>{code} — {city}</option>
+        <option key={code} value={`${city} (${code})`} />
       ))}
     </datalist>
   );
@@ -50,6 +64,8 @@ export default function Home() {
   const [mode, setMode] = useState<SearchMode>('flights');
   const [origin, setOrigin] = useState('AMS');
   const [destination, setDestination] = useState('BKK');
+  const [originInput, setOriginInput] = useState(() => airportLabel('AMS'));
+  const [destInput, setDestInput] = useState(() => airportLabel('BKK'));
   const [departDate, setDepartDate] = useState('');
   const [returnDate, setReturnDate] = useState('');
   const [tripType, setTripType] = useState<TripType>('round-trip');
@@ -259,10 +275,17 @@ export default function Home() {
                   <input
                     list="airports"
                     className="field-input"
-                    style={{ width: '80px', textTransform: 'uppercase' }}
-                    value={origin}
-                    onChange={(e) => setOrigin(e.target.value.toUpperCase().slice(0, 3))}
-                    placeholder="AMS"
+                    style={{ width: '180px' }}
+                    value={originInput}
+                    onChange={(e) => {
+                      setOriginInput(e.target.value);
+                      const code = parseIATA(e.target.value);
+                      if (code) setOrigin(code);
+                    }}
+                    onBlur={() => {
+                      if (AIRPORT_CITIES[origin]) setOriginInput(airportLabel(origin));
+                    }}
+                    placeholder="Amsterdam (AMS)"
                   />
                 </label>
                 <span className="arrow">→</span>
@@ -274,10 +297,17 @@ export default function Home() {
               <input
                 list="airports"
                 className="field-input"
-                style={{ width: '80px', textTransform: 'uppercase' }}
-                value={destination}
-                onChange={(e) => setDestination(e.target.value.toUpperCase().slice(0, 3))}
-                placeholder="BKK"
+                style={{ width: '180px' }}
+                value={destInput}
+                onChange={(e) => {
+                  setDestInput(e.target.value);
+                  const code = parseIATA(e.target.value);
+                  if (code) setDestination(code);
+                }}
+                onBlur={() => {
+                  if (AIRPORT_CITIES[destination]) setDestInput(airportLabel(destination));
+                }}
+                placeholder="Bangkok (BKK)"
               />
             </label>
 
@@ -579,12 +609,13 @@ export default function Home() {
                     <input
                       list="airports"
                       className="field-input"
-                      style={{ width: '80px', textTransform: 'uppercase' }}
-                      value={alertForm.origin}
-                      onChange={(e) =>
-                        setAlertForm({ ...alertForm, origin: e.target.value.toUpperCase().slice(0, 3) })
-                      }
-                      placeholder="AMS"
+                      style={{ width: '160px' }}
+                      defaultValue={airportLabel('AMS')}
+                      onChange={(e) => {
+                        const code = parseIATA(e.target.value);
+                        if (code) setAlertForm({ ...alertForm, origin: code });
+                      }}
+                      placeholder="Amsterdam (AMS)"
                     />
                   </label>
                   <label className="field">
@@ -592,12 +623,13 @@ export default function Home() {
                     <input
                       list="airports"
                       className="field-input"
-                      style={{ width: '80px', textTransform: 'uppercase' }}
-                      value={alertForm.destination}
-                      onChange={(e) =>
-                        setAlertForm({ ...alertForm, destination: e.target.value.toUpperCase().slice(0, 3) })
-                      }
-                      placeholder="BKK"
+                      style={{ width: '160px' }}
+                      defaultValue={airportLabel('BKK')}
+                      onChange={(e) => {
+                        const code = parseIATA(e.target.value);
+                        if (code) setAlertForm({ ...alertForm, destination: code });
+                      }}
+                      placeholder="Bangkok (BKK)"
                     />
                   </label>
                   <label className="field">

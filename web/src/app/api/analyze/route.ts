@@ -73,6 +73,61 @@ async function runPythonScraper(
 // Ryanair LCC airports within reach of Amsterdam
 const RYANAIR_NEARBY = ['EIN', 'STN', 'BRU', 'CRL'];
 
+async function runTequilaScraper(
+  params: ScraperParams,
+  dateRange = 3,
+): Promise<Record<string, unknown>[]> {
+  const apiKey = process.env.TEQUILA_API_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const scriptPath = path.join(process.cwd(), '..', 'scripts', 'search_tequila.py');
+    const base = new Date(params.departDate);
+    const from = new Date(base); from.setDate(base.getDate() - dateRange);
+    const to = new Date(base); to.setDate(base.getDate() + dateRange);
+    const fmt = (d: Date) => d.toISOString().split('T')[0];
+
+    const isRound = params.tripType === 'round-trip' && params.returnDate;
+    const returnOffset = isRound
+      ? Math.ceil(
+          (new Date(params.returnDate!).getTime() - new Date(params.departDate).getTime()) /
+            86400000,
+        )
+      : null;
+
+    const returnFrom = returnOffset !== null
+      ? fmt(new Date(new Date(params.returnDate!).getTime() - dateRange * 86400000))
+      : null;
+    const returnTo = returnOffset !== null
+      ? fmt(new Date(new Date(params.returnDate!).getTime() + dateRange * 86400000))
+      : null;
+
+    const cmd = [
+      `python "${scriptPath}"`,
+      `--origin ${params.origin}`,
+      `--destination ${params.destination}`,
+      `--date-from ${fmt(from)}`,
+      `--date-to ${fmt(to)}`,
+      ...(returnFrom ? [`--return-from ${returnFrom}`, `--return-to ${returnTo}`] : []),
+      `--adults ${params.adults}`,
+      ...(params.children ? [`--children ${params.children}`] : []),
+      ...(params.infantsOnLap ? [`--infants ${params.infantsOnLap}`] : []),
+      ...(params.maxStops !== undefined && params.maxStops >= 0
+        ? [`--max-stops ${params.maxStops}`]
+        : []),
+      `--currency EUR`,
+      `--limit 30`,
+      `--api-key ${apiKey}`,
+    ].join(' ');
+
+    const { stdout } = await execAsync(cmd, { timeout: 20000 });
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    return (parsed.all_flights_sorted_by_price as Record<string, unknown>[]) || [];
+  } catch {
+    return [];
+  }
+}
+
 async function runRyanairScraper(
   params: ScraperParams,
   dateRange = 3,
@@ -223,21 +278,23 @@ export async function POST(req: Request) {
               ),
             );
 
-            // Hunter: run Google Flights + Ryanair LCC in parallel
-            const [raw, ryanairFlights] = await Promise.all([
+            // Hunter: run Google Flights + Ryanair LCC + Kiwi Tequila in parallel
+            const [raw, ryanairFlights, tequilaFlights] = await Promise.all([
               allOrigins
                 ? runMultiScraper(scraperParams, allOrigins, dateRange)
                 : runPythonScraper(scraperParams, dateRange),
               isHunter ? runRyanairScraper(scraperParams, dateRange) : Promise.resolve([]),
+              isHunter ? runTequilaScraper(scraperParams, dateRange) : Promise.resolve([]),
             ]);
 
             const flightData = raw.data;
             const scraperErrors = 'scraperErrors' in raw ? raw.scraperErrors : (raw.scraperError ? [raw.scraperError] : []);
 
-            // Merge Ryanair LCC results into the main dataset
-            if (flightData && ryanairFlights.length > 0) {
+            // Merge Ryanair + Tequila results into the main dataset
+            const lccFlights = [...ryanairFlights, ...tequilaFlights];
+            if (flightData && lccFlights.length > 0) {
               const existing = (flightData.all_flights_sorted_by_price as unknown[]) || [];
-              const merged = [...existing, ...ryanairFlights];
+              const merged = [...existing, ...lccFlights];
               merged.sort((a, b) => {
                 const ap = (a as Record<string, unknown>).price_numeric as number | null;
                 const bp = (b as Record<string, unknown>).price_numeric as number | null;
@@ -247,7 +304,8 @@ export async function POST(req: Request) {
               });
               flightData.all_flights_sorted_by_price = merged;
               const summary = (flightData.search_summary as Record<string, unknown>) || {};
-              summary.ryanair_lcc_flights = ryanairFlights.length;
+              if (ryanairFlights.length > 0) summary.ryanair_lcc_flights = ryanairFlights.length;
+              if (tequilaFlights.length > 0) summary.kiwi_tequila_flights = tequilaFlights.length;
             }
             const hasFlights =
               flightData &&
@@ -257,7 +315,11 @@ export async function POST(req: Request) {
               const count = (flightData!.all_flights_sorted_by_price as unknown[]).length;
               const summary = (flightData!.search_summary as Record<string, unknown>) || {};
               const airports = (summary.airports_compared as string[]) || [];
-              const ryanairNote = ryanairFlights.length > 0 ? ` + ${ryanairFlights.length} Ryanair LCC` : '';
+              const lccParts = [
+                ryanairFlights.length > 0 ? `${ryanairFlights.length} Ryanair` : '',
+                tequilaFlights.length > 0 ? `${tequilaFlights.length} Kiwi` : '',
+              ].filter(Boolean);
+              const ryanairNote = lccParts.length > 0 ? ` + ${lccParts.join(' + ')}` : '';
               controller.enqueue(
                 encoder.encode(
                   airports.length > 1
