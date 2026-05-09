@@ -5,6 +5,7 @@ export type SearchMode = 'flights' | 'points' | 'hotel';
 export type Feature =
   | 'live-prices'
   | 'hunter'
+  | 'hub-arbitrage'
   | 'date-scanner'
   | 'hidden-finder'
   | 'route-optimizer'
@@ -254,6 +255,14 @@ const FLIGHT_FEATURES: {
     icon: '🎯',
     description: 'Chasse exhaustive : tous aéroports × dates × escales',
     color: 'from-orange-500/20 to-red-600/20 border-orange-500/30',
+    mode: 'flights',
+  },
+  {
+    id: 'hub-arbitrage',
+    label: '✈️ Hub Arbitrage',
+    icon: '✈️',
+    description: 'Positionnement + Business depuis hubs IST/DOH/DXB — -60% vs direct',
+    color: 'from-emerald-500/20 to-teal-600/20 border-emerald-500/30',
     mode: 'flights',
   },
   {

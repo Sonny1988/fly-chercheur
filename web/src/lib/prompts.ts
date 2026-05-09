@@ -1,5 +1,43 @@
 import { Feature, SearchParams, PointsBalance, AIRPORT_CITIES } from './types';
 
+export function formatHubArbitragePrompt(
+  scrapeData: Record<string, unknown>,
+  params: SearchParams,
+): string {
+  const combos = (scrapeData.arbitrage_combos as Record<string, unknown>[]) || [];
+  const baseline = scrapeData.direct_baseline as Record<string, unknown> | null;
+  const summary = scrapeData.summary as Record<string, unknown> | null;
+
+  const baselineStr = baseline?.price
+    ? `Direct ${params.origin}→${params.destination} ${params.class}: ${baseline.price}€ (${baseline.airline || '?'})`
+    : `Direct ${params.class}: non disponible`;
+
+  const comboLines = combos.slice(0, 8).map((c: Record<string, unknown>, i: number) => {
+    const pos = c.positioning as Record<string, unknown>;
+    const lh = c.long_haul as Record<string, unknown>;
+    return `${i + 1}. HUB ${c.hub_iata} (${c.hub_name}) — ${c.hub_airline}
+   Positionnement: ${pos?.from_airport}→${c.hub_iata} ${pos?.airline} ${pos?.total_cost}€ (${pos?.source})
+   Long-courrier: ${c.hub_iata}→${params.destination} ${lh?.airline} ${lh?.price}€ [${params.class}]
+   TOTAL: ${c.total_price}€${c.saving_vs_direct ? ` — Économie: ${c.saving_vs_direct}€ (${c.saving_pct}%)` : ''}
+   Note: ${c.hub_note}`;
+  }).join('\n\n');
+
+  return `Hub Price Arbitrage — ${params.origin} → ${params.destination} [${params.class.toUpperCase()}]
+Période analysée: ${params.departDate}${params.returnDate ? ` → ${params.returnDate}` : ''}
+Passagers: ${params.adults}
+
+BASELINE:
+${baselineStr}
+
+COMBINAISONS POSITIONNEMENT + ${params.class.toUpperCase()} DEPUIS HUB (${summary?.combos_found || 0} trouvées, triées par prix total):
+
+${comboLines || 'Aucune combinaison trouvée'}
+
+${summary?.best_total ? `MEILLEURE COMBINAISON: ${summary.best_hub} — ${summary.best_total}€ total (économie ${summary.best_saving_eur}€ / ${summary.best_saving_pct}% vs direct)` : ''}
+
+Analyse ces combinaisons et présente le rapport complet.`;
+}
+
 export function getLivePricesSystemPrompt(): string {
   return `Tu es un expert en tarification aérienne. On t'a fourni des VRAIS prix scrapés en temps réel depuis Google Flights. Analyse-les et produis un rapport clair.
 
@@ -65,6 +103,41 @@ RÈGLES ABSOLUES (s'appliquent à TOUTES les réponses) :
 export function getSystemPrompt(feature: Feature): string {
   const prompts: Record<Feature, string> = {
     'live-prices': `(handled separately via getLivePricesSystemPrompt)`,
+    'hub-arbitrage': `Tu es un expert en arbitrage tarifaire aérien. Tu as reçu des VRAIES données scrapées en temps réel : prix de vols de positionnement (economy) + vols long-courriers en Business/Première depuis des hubs alternatifs.
+
+MISSION : Présenter les meilleures combinaisons "positioning + hub business" avec une analyse claire de l'économie réalisée vs le vol direct.
+
+FORMAT DU RAPPORT :
+
+## ✈️ Hub Arbitrage — {Origine} → {Destination} [{Classe}]
+
+### 💰 Résumé des économies
+Tableau : Hub | Compagnie | Positionnement | Long-courrier | Total | Économie vs direct | % économie
+
+### 🏆 Meilleure combinaison
+Détailler le winner :
+- Vol de positionnement : {aéroport départ} → {hub} — {compagnie} — {prix}€ — {source}
+- Long-courrier {classe} : {hub} → {destination} — {compagnie} — {prix}€
+- **TOTAL : {prix total}€** vs direct {prix direct}€ → **Économie : {économie}€ ({%})**
+- Note sur le produit (qualité cabin, bagages, connexion typique)
+
+### 📋 Toutes les combinaisons (triées par prix total)
+Tableau détaillé pour chaque hub testé.
+
+### 📅 Conseils pratiques
+- Comment réserver les deux segments séparément
+- Risques d'une combinaison self-transfer (pas de protection si retard)
+- Bagages : vérifier franchise pour chaque segment séparément
+- Marge de connexion recommandée à {hub}
+
+### 🔗 Liens de réservation
+Fournir des liens directs pour chaque segment du winner.
+
+RÈGLES :
+- Les prix viennent d'un scraping en temps réel — présente-les comme tels
+- Être direct sur les économies chiffrées
+- Signaler si la combinaison vaut vraiment le déplacement jusqu'à l'aéroport alternatif
+- Réponds en français`,
     'hunter': `Tu es un chasseur de prix de vols professionnel. Tu as reçu des données RÉELLES scrapées depuis Google Flights pour PLUSIEURS aéroports de départ et plusieurs dates.
 
 MISSION : Trouver le billet d'avion absolument le moins cher, toutes combinaisons confondues.
@@ -391,6 +464,7 @@ Passagers : ${paxStr}${params.maxStops !== undefined && params.maxStops >= 0 ? `
 
   const extras: Record<Feature, string> = {
     'live-prices': `\n\nRecherche les prix actuels sur Google Flights, Kayak et Skyscanner pour la route ${params.origin}→${params.destination} le ${params.departDate}. Trouve le vol le moins cher disponible maintenant.`,
+    'hub-arbitrage': `\n\nAnalyse les combinaisons positioning + ${params.class} depuis les hubs alternatifs pour ${params.origin}→${params.destination} (${params.departDate}${params.returnDate ? ` retour ${params.returnDate}` : ''}).`,
     'hunter': `\n\nMode HUNTER activé. Compare tous les aéroports (${(params.origins || [params.origin]).join(', ')}) × dates ±5 jours × toutes configurations d'escales. Objectif absolu : trouver le prix le plus bas possible. Inclus le coût de trajet vers chaque aéroport alternatif dans le prix total.`,
     'date-scanner': `\n\nAnalyse les dates ±7 jours autour des dates cibles. Trouve les 3 meilleures combinaisons aller + retour. Cherche sur Google Flights, Kayak et Skyscanner. Explique pourquoi certaines dates sont moins chères.`,
     'hidden-finder': `\n\nListe TOUTES les compagnies aériennes desservant cette route, y compris les low-cost et régionales. Trie par prix total réel en EUR (bagage cabin + taxes inclus).`,

@@ -14,7 +14,7 @@ import {
 
 const execAsync = promisify(exec);
 
-export const maxDuration = 60;
+export const maxDuration = 300; // hub-arbitrage needs up to 3 min
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -465,6 +465,80 @@ export async function POST(req: Request) {
                   `> Ces liens ouvrent directement la recherche avec ta route et tes dates. Les prix affichés seront exacts pour ta configuration.\n`,
                 ),
               );
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Erreur inconnue';
+            controller.enqueue(encoder.encode(`\n\n**Erreur :** ${msg}`));
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    }
+
+    // ── Hub Arbitrage ─────────────────────────────────────────────────────────
+    if (feature === 'hub-arbitrage') {
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            const seat = scraperParams.class === 'economy' ? 'business' : scraperParams.class;
+            controller.enqueue(
+              encoder.encode(
+                `🌐 **Hub Arbitrage — Positionnement + ${seat.toUpperCase()} depuis hubs alternatifs...**\n\n` +
+                `Analyse : IST (Turkish) · DOH (Qatar) · DXB (Emirates) · ADD (Ethiopian) · MCT (Oman Air) · BOM (Air India)...\n\n` +
+                `_Scraping positioning + long-haul ${seat} en parallèle — 2-3 min_\n\n`,
+              ),
+            );
+
+            const { data, error } = await runHubArbitrage(scraperParams);
+
+            if (!data || !((data.arbitrage_combos as unknown[])?.length)) {
+              controller.enqueue(
+                encoder.encode(
+                  `❌ **Hub Arbitrage indisponible** — ${error || 'Aucune combinaison trouvée'}\n\n` +
+                  `**Recherche manuelle :**\n` +
+                  `- [Turkish Business IST→${scraperParams.destination}](https://www.turkishairlines.com)\n` +
+                  `- [Qatar Business DOH→${scraperParams.destination}](https://www.qatarairways.com)\n` +
+                  `- [Emirates Business DXB→${scraperParams.destination}](https://www.emirates.com)\n` +
+                  `- [Ryanair AMS→IST](https://www.ryanair.com)\n`,
+                ),
+              );
+              return;
+            }
+
+            const combos = (data.arbitrage_combos as unknown[]).length;
+            controller.enqueue(
+              encoder.encode(`✅ **${combos} combinaison(s) trouvée(s) ! Analyse en cours...**\n\n`),
+            );
+
+            const response = await anthropic.messages.create({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 4000,
+              stream: true,
+              system: getSystemPrompt('hub-arbitrage'),
+              messages: [
+                {
+                  role: 'user',
+                  content: formatHubArbitragePrompt(data, scraperParams as SearchParams),
+                },
+              ],
+            });
+
+            for await (const event of response) {
+              if (
+                event.type === 'content_block_delta' &&
+                event.delta.type === 'text_delta'
+              ) {
+                controller.enqueue(encoder.encode(event.delta.text));
+              }
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : 'Erreur inconnue';
