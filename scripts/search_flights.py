@@ -3,9 +3,15 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timedelta
+
+# Load vendor packages when running on Vercel/Lambda (no global pip install)
+_vendor = os.path.join(os.path.dirname(__file__), 'vendor')
+if os.path.isdir(_vendor):
+    sys.path.insert(0, _vendor)
 
 
 def parse_args():

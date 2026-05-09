@@ -7,6 +7,10 @@ import os
 import sys
 from datetime import datetime
 
+_vendor = os.path.join(os.path.dirname(__file__), 'vendor')
+if os.path.isdir(_vendor):
+    sys.path.insert(0, _vendor)
+
 import requests
 
 

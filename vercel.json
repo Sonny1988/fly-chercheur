@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pip3 install --target=scripts/vendor -r requirements.txt && cd web && npm run build",
+  "outputDirectory": "web/.next",
+  "installCommand": "cd web && npm install"
+}
