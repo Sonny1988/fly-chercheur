@@ -312,6 +312,14 @@ const FLIGHT_FEATURES: {
     color: 'from-pink-500/20 to-pink-600/20 border-pink-500/30',
     mode: 'flights',
   },
+  {
+    id: 'consolidator',
+    label: 'Business Discount',
+    icon: '💼',
+    description: 'Tarifs consolidateurs Business & 1ère classe',
+    color: 'from-indigo-500/20 to-indigo-600/20 border-indigo-500/30',
+    mode: 'flights',
+  },
   // Points & Miles
   {
     id: 'award-flights',

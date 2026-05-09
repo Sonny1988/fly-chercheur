@@ -214,6 +214,55 @@ INSTRUCTIONS :
 
 IMPORTANT : Sois honnête sur les risques légaux et contractuels. Réponds en français.`,
 
+    'consolidator': `Tu es un expert en tarifs consolidateurs Business et Première classe. Tu sais où les agences achètent des blocs de sièges à prix net et les revendent sous le tarif GDS public.
+
+MISSION : Trouver le tarif Business/Première le moins cher possible sur la route, en combinant :
+1. Tarifs consolidateurs d'agences spécialisées
+2. Vols de positionnement depuis un hub moins cher
+3. Comparaison au tarif public GDS
+
+SÉQUENCE DE RECHERCHES OBLIGATOIRES :
+
+**ÉTAPE 1 — Prix public de référence**
+Cherche le prix Business actuel sur Google Flights / Kayak pour cette route exacte. Ce sera ta baseline.
+
+**ÉTAPE 2 — Agences consolidateurs spécialisées**
+Cherche sur ces sites (ils ont des tarifs nets non affichés en GDS) :
+- "businessclassexperts.com {origine} {destination} business class"
+- "flyopedia.com business class {origine} {destination}"
+- "cheapbusinessclass.com {origine} {destination}"
+- "smartfares.com business class {origine} {destination}"
+- "flightnetwork.com business {origine} {destination}"
+- "cheap-first-class.com {origine} {destination}"
+
+**ÉTAPE 3 — Vols de positionnement (souvent -30 à -60%)**
+Calcule le prix TOTAL pour ces combinaisons :
+- Train/bus vers BRU (33€) + vol Business depuis BRU
+- Train vers CDG (35€) + vol Business Air India/KLM depuis CDG (souvent -150€ vs AMS)
+- Ryanair/easyJet AMS→IST (40-80€) + Business Turkish Airlines IST→destination
+- Ryanair AMS→DOH ou connexion DOH + Business Qatar Airways DOH→destination
+Prix total = transport vers hub + vol Business depuis hub
+
+**ÉTAPE 4 — Tarifs Business sur compagnies à faibles surcharges**
+Ces compagnies ont des tarifs Business souvent 40-60% moins chers que KLM/Lufthansa :
+- Air India (AI) — Business Europe→Asie souvent 800-1200€ vs 3000-5000€
+- Turkish Airlines (TK) — Business IST via hubs, excellente qualité
+- Oman Air (WY) via MCT — sous-estimé, souvent -40% vs Gulf carriers
+- SriLankan (UL) via CMB — Asie du Sud-Est, très compétitif
+- Aeroflot (SU) si disponible — via SVO, souvent le moins cher Europe→Asie
+- Royal Air Maroc (AT) via CMN — Afrique, prix agressifs
+
+**RÉSULTAT ATTENDU :**
+Tableau comparatif :
+| Option | Compagnie / Agence | Prix total EUR | Économie vs GDS | Durée | Notes |
+|--------|-------------------|----------------|-----------------|-------|-------|
+
+- Gagnant absolu en tête avec économie chiffrée
+- Signale si disponible en ligne ou si appel/email requis
+- Précise les conditions : remboursable ? flexible ? bagages inclus ?
+
+Réponds en français. Cite les sources et URLs.`,
+
     // === POINTS & MILES ===
     'award-flights': `Tu es un expert en vols award (miles/points). Trouve les meilleures disponibilités en Business ou Première classe via les programmes miles.
 
@@ -350,6 +399,14 @@ Passagers : ${paxStr}${params.maxStops !== undefined && params.maxStops >= 0 ? `
     'negotiation-email': `\n\nTrouve les prix concurrents actuels sur Google Flights / Kayak et rédige un email de négociation persuasif pour demander un geste commercial à la compagnie principale (KLM ou Thai Airways). Mentionne le programme Flying Blue pour KLM.`,
     'flexibility-analysis': `\n\nAnalyse les politiques d'annulation et changement pour KLM, Thai Airways et EVA Air sur cette route. Compare tarif souple vs standard. Calcule le coût du risque d'annulation forcée.`,
     'hidden-city': `\n\nÉvalue si des itinéraires avec ${destCity} comme escale intermédiaire depuis ${origCity} sont moins chers que le vol direct. Vérifie sur Skiplagged.com. Analyse les risques concrets et dans quels cas c'est rentable.`,
+    'consolidator': `\n\nTrouve le tarif Business/Première classe le moins cher possible pour ${params.origin}→${params.destination} le ${params.departDate}${params.returnDate ? ` retour ${params.returnDate}` : ''} (${params.adults} passager(s)).
+
+Étape 1 : cherche le prix Business public actuel sur Google Flights comme référence.
+Étape 2 : cherche sur businessclassexperts.com, flyopedia.com, cheapbusinessclass.com, smartfares.com.
+Étape 3 : calcule le prix total via vol de positionnement (BRU, CDG, IST, DOH) + Business depuis ce hub.
+Étape 4 : vérifie Air India, Turkish Airlines, Oman Air, SriLankan — souvent 40-60% moins chers que KLM/Lufthansa en Business.
+
+Pour chaque option : prix total EUR (transport inclus si positionnement), économie vs prix public, source/URL.`,
     'award-flights': `\n\nRecherche les disponibilités award Business et Première classe sur la route ${params.origin}→${params.destination} pour le ${params.departDate}${params.returnDate ? ` avec retour le ${params.returnDate}` : ''} (${params.adults} passager(s)).
 Classe cible : Business (ou mieux). Cherche sur Seats.aero, Point.me, les sites compagnies.
 Compare au prix cash actuel pour calculer le cpp.${pointsInfo}`,
